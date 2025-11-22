@@ -132,6 +132,7 @@ Must follow this structure:
 ```
 
 - `spans`: List of time-based annotations with start_time, end_time, and label
+  - `start_time` and `end_time` are relative seconds from episode start (just like timestamps in LeRobot data)
   - Use label `"human_intervention"` for human interventions during policy rollout
 - `extras`: Free-form metadata (optional)
 
@@ -249,7 +250,7 @@ The validator uses two data types:
 
 ### Annotation JSON (if present)
 - Must follow the required schema structure
-- `spans` with `start_time < end_time`
+- `spans` with `start_time < end_time` (timestamps are relative seconds from episode start)
 - No negative time values allowed
 - Proper JSON structure required
 
