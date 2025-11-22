@@ -45,7 +45,7 @@ python validate.py compute-path \
 
 - ✅ Validates `custom_metadata.csv` with required columns
 - ✅ Validates `custom_annotation.json` structure (optional file)
-- ✅ Checks lerobot dataset for task strings and frequency
+- ✅ Checks lerobot dataset for task and fps
 - ✅ Cross-validates: intervention only for eval episodes, time boundaries
 - ✅ Computes GCP upload paths with custom prefixes
 - ✅ Supports both local paths and GCP URIs (gs://)
@@ -57,7 +57,7 @@ python validate.py compute-path \
 Your dataset should have:
 ```
 my-dataset/
-├── info.json                    # Must contain "task" and "frequency"
+├── info.json                    # Must contain "task" and "fps"
 └── meta/
     ├── custom_metadata.csv      # Episode metadata (required)
     └── custom_annotation.json   # Episode annotations (optional)
@@ -69,13 +69,12 @@ my-dataset/
 
 Must contain:
 - `task`: Task string for the dataset
-- `frequency` (or `fps`): Data collection frequency
+- `fps`: Data collection frequency (frames per second)
 
 Example:
 ```json
 {
   "task": "pick_and_place",
-  "frequency": 30,
   "fps": 30
 }
 ```
@@ -255,7 +254,7 @@ The validator uses two data types:
 
 ### Lerobot Dataset
 - Must contain `task` field in `info.json`
-- Must contain `frequency` (or `fps`) field in `info.json`
+- Must contain `fps` field in `info.json`
 
 ### Cross-Validation
 1. **Human intervention constraint**: Spans with label `"human_intervention"` only allowed for eval episodes (is_eval_episode=True)
@@ -350,8 +349,8 @@ else:
 **"No task string found in lerobot dataset"**
 - Ensure info.json contains "task" field
 
-**"Missing 'frequency' field in info.json"**
-- Add "frequency" (or "fps") field to info.json
+**"Missing 'fps' field in info.json"**
+- Add "fps" field to info.json to specify data collection frequency
 
 **"path_to_policy_checkpoint must contain valid GCS URIs"**
 - Use format `gs://bucket/path/to/checkpoint.pth`

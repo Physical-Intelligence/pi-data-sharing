@@ -19,10 +19,9 @@ def create_test_dataset(tmpdir):
     meta_dir = dataset_path / "meta"
     meta_dir.mkdir()
 
-    # Create info.json with task and frequency info
+    # Create info.json with task and fps
     info = {
         "task": "pick_and_place",
-        "frequency": 30,
         "fps": 30,
     }
     with open(dataset_path / "info.json", "w") as f:
