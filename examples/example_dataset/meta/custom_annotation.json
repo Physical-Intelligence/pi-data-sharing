@@ -1,0 +1,96 @@
+{
+  "episodes": [
+    {
+      "episode_id": "ep_20241101_001",
+      "spans": [
+        {
+          "start_time": 0.0,
+          "end_time": 5.0,
+          "label": "approach_object"
+        },
+        {
+          "start_time": 2.5,
+          "end_time": 4.0,
+          "label": "human_intervention"
+        },
+        {
+          "start_time": 5.0,
+          "end_time": 10.0,
+          "label": "grasp_object"
+        },
+        {
+          "start_time": 8.0,
+          "end_time": 10.5,
+          "label": "human_intervention"
+        },
+        {
+          "start_time": 10.0,
+          "end_time": 15.0,
+          "label": "place_object"
+        }
+      ],
+      "extras": {
+        "notes": "Policy struggled with grasp, required human intervention",
+        "object_type": "mug"
+      }
+    },
+    {
+      "episode_id": "ep_20241101_002",
+      "spans": [
+        {
+          "start_time": 0.0,
+          "end_time": 12.0,
+          "label": "autonomous_execution"
+        }
+      ],
+      "extras": {
+        "notes": "Fully autonomous, no issues"
+      }
+    },
+    {
+      "episode_id": "ep_20241101_003",
+      "spans": [
+        {
+          "start_time": 0.0,
+          "end_time": 10.0,
+          "label": "pick"
+        },
+        {
+          "start_time": 5.0,
+          "end_time": 7.5,
+          "label": "human_intervention"
+        },
+        {
+          "start_time": 10.0,
+          "end_time": 20.0,
+          "label": "place"
+        },
+        {
+          "start_time": 15.0,
+          "end_time": 18.0,
+          "label": "human_intervention"
+        }
+      ],
+      "extras": {
+        "object_type": "bottle",
+        "failure_reason": "object_slipped"
+      }
+    },
+    {
+      "episode_id": "ep_20241101_004",
+      "spans": [
+        {
+          "start_time": 0.0,
+          "end_time": 8.0,
+          "label": "grasp"
+        },
+        {
+          "start_time": 8.0,
+          "end_time": 18.0,
+          "label": "transport"
+        }
+      ],
+      "extras": {}
+    }
+  ]
+}

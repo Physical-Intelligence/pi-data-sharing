@@ -1,0 +1,4 @@
+episode_index,operator_id,is_eval_episode,episode_id,start_timestamp,checkpoint_path,success,station_id,robot_id
+0,demo_operator_1,True,demo_ep_001,1730473200,gs://demo-bucket/checkpoints/demo_policy_v1.pth,True,demo_station_01,robot_001
+1,demo_operator_1,False,demo_ep_002,1730473500,,True,demo_station_01,robot_001
+2,demo_operator_2,True,demo_ep_003,1730473800,gs://demo-bucket/checkpoints/demo_policy_v1.pth,False,demo_station_01,robot_002

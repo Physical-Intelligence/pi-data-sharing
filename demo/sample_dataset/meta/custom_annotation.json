@@ -1,0 +1,80 @@
+{
+  "episodes": [
+    {
+      "episode_id": "demo_ep_001",
+      "spans": [
+        {
+          "start_time": 0.0,
+          "end_time": 6.0,
+          "label": "approach_and_grasp"
+        },
+        {
+          "start_time": 3.0,
+          "end_time": 5.5,
+          "label": "human_intervention"
+        },
+        {
+          "start_time": 6.0,
+          "end_time": 13.0,
+          "label": "transport"
+        },
+        {
+          "start_time": 10.0,
+          "end_time": 12.0,
+          "label": "human_intervention"
+        },
+        {
+          "start_time": 13.0,
+          "end_time": 15.0,
+          "label": "place"
+        }
+      ],
+      "extras": {
+        "notes": "Required intervention during grasp phase",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "episode_id": "demo_ep_002",
+      "spans": [
+        {
+          "start_time": 0.0,
+          "end_time": 12.0,
+          "label": "autonomous_execution"
+        }
+      ],
+      "extras": {
+        "notes": "Fully autonomous, successful execution"
+      }
+    },
+    {
+      "episode_id": "demo_ep_003",
+      "spans": [
+        {
+          "start_time": 0.0,
+          "end_time": 8.0,
+          "label": "approach_and_grasp"
+        },
+        {
+          "start_time": 8.0,
+          "end_time": 11.0,
+          "label": "human_intervention"
+        },
+        {
+          "start_time": 8.0,
+          "end_time": 15.0,
+          "label": "transport_attempt"
+        },
+        {
+          "start_time": 15.0,
+          "end_time": 18.0,
+          "label": "recovery"
+        }
+      ],
+      "extras": {
+        "notes": "Object slipped during transport, required intervention",
+        "failure_mode": "grasp_failure"
+      }
+    }
+  ]
+}

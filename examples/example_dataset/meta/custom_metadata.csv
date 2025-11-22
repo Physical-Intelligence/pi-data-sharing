@@ -1,0 +1,5 @@
+episode_index,operator_id,is_eval_episode,episode_id,start_timestamp,checkpoint_path,success,station_id,robot_id
+0,operator_alice,True,ep_20241101_001,1730455200,gs://my-bucket/checkpoints/policy_v1.0.pth,True,robot_station_01,robot_alpha
+1,operator_alice,False,ep_20241101_002,1730458800,,True,robot_station_01,robot_alpha
+2,operator_bob,True,ep_20241101_003,1730462400,gs://my-bucket/checkpoints/policy_v1.1.pth,False,robot_station_02,robot_beta
+3,operator_bob,False,ep_20241101_004,1730465400,,True,robot_station_02,robot_beta

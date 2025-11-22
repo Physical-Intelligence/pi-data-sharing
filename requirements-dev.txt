@@ -1,0 +1,16 @@
+# Include base requirements
+-r requirements.txt
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-typeguard>=4.0.0
+
+# Code quality
+black>=22.0.0
+isort>=5.0.0
+mypy>=0.991
+
+# Type stubs
+types-jsonschema
+pandas-stubs>=1.5.0
