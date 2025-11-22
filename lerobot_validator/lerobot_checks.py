@@ -50,7 +50,7 @@ class LerobotDatasetChecker:
         return len(self.errors) == 0
 
     def _check_required_lerobot_fields(self) -> None:
-        """Check that required fields (task, frequency) exist in the lerobot dataset."""
+        """Check that required fields (task, fps) exist in the lerobot dataset."""
         # Look for info.json which typically contains dataset-level information
         info_file = self.dataset_path / "info.json"
         
@@ -72,11 +72,11 @@ class LerobotDatasetChecker:
                     "The lerobot dataset must include a task string for every episode."
                 )
             
-            # Check for frequency field
-            if "frequency" not in info and "fps" not in info:
+            # Check for fps field (frequency is already checked via fps)
+            if "fps" not in info:
                 self.errors.append(
-                    "Missing 'frequency' field in info.json. "
-                    "The lerobot dataset must specify the data collection frequency."
+                    "Missing 'fps' field in info.json. "
+                    "The lerobot dataset must specify the data collection frequency (fps)."
                 )
                 
         except json.JSONDecodeError as e:

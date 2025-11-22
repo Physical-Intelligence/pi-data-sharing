@@ -19,8 +19,8 @@ REQUIRED_METADATA_COLUMNS = [
 
 # Required fields in the lerobot dataset itself
 REQUIRED_LEROBOT_FIELDS = [
-    "task",       # task string for every episode
-    "frequency",  # frequency of data collection
+    "task",  # task string for every episode
+    "fps",   # frequency of data collection (frames per second)
 ]
 
 # JSON schema for custom_annotation.json
