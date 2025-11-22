@@ -1,5 +1,4 @@
 {
-  "task": "pick_and_place",
   "robot_type": "manipulator",
   "fps": 30,
   "codebase_version": "1.0"
