@@ -18,10 +18,16 @@ def create_test_dataset(tmpdir):
     # Create meta folder
     meta_dir = dataset_path / "meta"
     meta_dir.mkdir()
+    
+    # Create data folder (lerobot datasets have parquet files here with task column)
+    data_dir = dataset_path / "data"
+    data_dir.mkdir()
+    # Create a dummy parquet file to satisfy the check
+    # In a real dataset, this would contain the task column
+    (data_dir / "chunk-000.parquet").touch()
 
-    # Create info.json with task and fps
+    # Create info.json with fps (task is stored in parquet data files, not info.json)
     info = {
-        "task": "pick_and_place",
         "fps": 30,
         "episodes": {
             "ep_001": {"duration": 10.0, "num_frames": 300},

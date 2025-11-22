@@ -1,5 +1,4 @@
 {
-  "task": "pick_and_place_demo",
   "robot_type": "manipulator",
   "fps": 30,
   "codebase_version": "1.0",
@@ -7,20 +6,17 @@
     "demo_ep_001": {
       "episode_index": 0,
       "duration": 15.0,
-      "num_frames": 450,
-      "task": "pick_and_place_demo"
+      "num_frames": 450
     },
     "demo_ep_002": {
       "episode_index": 1,
       "duration": 12.0,
-      "num_frames": 360,
-      "task": "pick_and_place_demo"
+      "num_frames": 360
     },
     "demo_ep_003": {
       "episode_index": 2,
       "duration": 18.0,
-      "num_frames": 540,
-      "task": "pick_and_place_demo"
+      "num_frames": 540
     }
   }
 }

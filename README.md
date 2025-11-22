@@ -45,7 +45,7 @@ python validate.py compute-path \
 
 - ✅ Validates `custom_metadata.csv` with required columns
 - ✅ Validates `custom_annotation.json` structure (optional file)
-- ✅ Checks lerobot dataset for task and fps
+- ✅ Checks lerobot dataset for fps
 - ✅ Cross-validates: intervention only for eval episodes, time boundaries
 - ✅ Computes GCP upload paths with custom prefixes
 - ✅ Supports both local paths and GCP URIs (gs://)
@@ -57,7 +57,7 @@ python validate.py compute-path \
 Your dataset should have:
 ```
 my-dataset/
-├── info.json                    # Must contain "task" and "fps"
+├── info.json                    # Must contain "fps"
 └── meta/
     ├── custom_metadata.csv      # Episode metadata (required)
     └── custom_annotation.json   # Episode annotations (optional)
@@ -68,14 +68,13 @@ my-dataset/
 ### info.json
 
 Must contain:
-- `task`: Task string for the dataset
 - `fps`: Data collection frequency (frames per second)
 
 Example:
 ```json
 {
-  "task": "pick_and_place",
-  "fps": 30
+  "fps": 30,
+  "robot_type": "manipulator"
 }
 ```
 
@@ -254,7 +253,6 @@ The validator uses two data types:
 - Proper JSON structure required
 
 ### Lerobot Dataset
-- Must contain `task` field in `info.json`
 - Must contain `fps` field in `info.json`
 
 ### Cross-Validation
