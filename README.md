@@ -438,4 +438,3 @@ Apache-2.0
 - **Examples**: See `examples/` and `demo/` directories
 - **Tests**: Check `tests/` for usage patterns
 - **Issues**: See troubleshooting section above
-- **Contact**: support@physicalintelligence.company
