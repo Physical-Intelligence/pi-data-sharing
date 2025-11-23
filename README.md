@@ -57,15 +57,15 @@ python validate.py compute-path \
 Your dataset should have:
 ```
 my-dataset/
-├── info.json                    # Must contain "fps"
 └── meta/
+    ├── info.json                # Must contain "fps"
     ├── custom_metadata.csv      # Episode metadata (required)
     └── custom_annotation.json   # Episode annotations (optional)
 ```
 
 ## Required Files
 
-### info.json
+### meta/info.json
 
 Must contain:
 - `fps`: Data collection frequency (frames per second)
@@ -77,6 +77,8 @@ Example:
   "robot_type": "manipulator"
 }
 ```
+
+**Note:** In lerobot datasets, `info.json` is stored in the `meta/` folder.
 
 ### custom_metadata.csv
 
