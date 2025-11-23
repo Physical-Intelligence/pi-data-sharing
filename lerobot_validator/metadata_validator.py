@@ -2,9 +2,8 @@
 Validator for custom_metadata.csv file.
 """
 
-import csv
 from pathlib import Path
-from typing import List, Dict, Any, Set, Union
+from typing import List, Dict, Any, Union
 
 import pandas as pd
 from cloudpathlib import CloudPath, AnyPath

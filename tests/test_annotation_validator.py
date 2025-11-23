@@ -4,8 +4,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from lerobot_validator.annotation_validator import AnnotationValidator
 
 
