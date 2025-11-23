@@ -1,6 +1,7 @@
 # Lerobot Dataset Validator
 
 A lightweight library for validating lerobot dataset metadata and annotations, and computing GCP upload paths.
+> **📋 Design Documentation:** For complete specifications and design details, see the [Custom Data Schema Design Doc](https://docs.google.com/document/d/1Gt6NZFUpROBcOTPwi07bRYaWsW-KA_JBQ7BRJ2U9_-k/edit?tab=t.0)
 
 ## Quick Start
 
@@ -433,8 +434,8 @@ Apache-2.0
 
 ## Support
 
+- **Design Documentation**: [Custom Data Schema Design Doc](https://docs.google.com/document/d/1Gt6NZFUpROBcOTPwi07bRYaWsW-KA_JBQ7BRJ2U9_-k/edit?tab=t.0)
 - **Examples**: See `examples/` and `demo/` directories
-- **Documentation**: See `TIMESTAMP_VALIDATION.md` for timestamp format details
 - **Tests**: Check `tests/` for usage patterns
 - **Issues**: See troubleshooting section above
 - **Contact**: support@physicalintelligence.company
