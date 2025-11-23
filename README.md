@@ -2,6 +2,8 @@
 
 A lightweight library for validating lerobot dataset metadata and annotations, and computing GCP upload paths.
 
+> **📋 Design Documentation:** For complete specifications and design details, see the [Custom Data Schema Design Doc](https://docs.google.com/document/d/1Gt6NZFUpROBcOTPwi07bRYaWsW-KA_JBQ7BRJ2U9_-k/edit?tab=t.0)
+
 ## Quick Start
 
 ### 1. Installation
@@ -57,15 +59,15 @@ python validate.py compute-path \
 Your dataset should have:
 ```
 my-dataset/
-├── info.json                    # Must contain "fps"
 └── meta/
+    ├── info.json                # Must contain "fps"
     ├── custom_metadata.csv      # Episode metadata (required)
     └── custom_annotation.json   # Episode annotations (optional)
 ```
 
 ## Required Files
 
-### info.json
+### meta/info.json
 
 Must contain:
 - `fps`: Data collection frequency (frames per second)
@@ -77,6 +79,8 @@ Example:
   "robot_type": "manipulator"
 }
 ```
+
+**Note:** In lerobot datasets, `info.json` is stored in the `meta/` folder.
 
 ### custom_metadata.csv
 
@@ -431,8 +435,8 @@ Apache-2.0
 
 ## Support
 
+- **Design Documentation**: [Custom Data Schema Design Doc](https://docs.google.com/document/d/1Gt6NZFUpROBcOTPwi07bRYaWsW-KA_JBQ7BRJ2U9_-k/edit?tab=t.0)
 - **Examples**: See `examples/` and `demo/` directories
-- **Documentation**: See `TIMESTAMP_VALIDATION.md` for timestamp format details
 - **Tests**: Check `tests/` for usage patterns
 - **Issues**: See troubleshooting section above
 - **Contact**: support@physicalintelligence.company
