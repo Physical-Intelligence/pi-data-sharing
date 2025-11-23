@@ -51,13 +51,13 @@ class LerobotDatasetChecker:
 
     def _check_required_lerobot_fields(self) -> None:
         """Check that required fields (fps) exist in the lerobot dataset."""
-        # Look for info.json which contains dataset-level information
-        info_file = self.dataset_path / "info.json"
+        # Look for info.json in meta folder (lerobot stores it there)
+        info_file = self.dataset_path / "meta" / "info.json"
         
         if not info_file.exists():
             self.errors.append(
                 f"Required file not found: {info_file}. "
-                "The lerobot dataset must contain an info.json file."
+                "The lerobot dataset must contain a meta/info.json file."
             )
             return
         
@@ -68,22 +68,22 @@ class LerobotDatasetChecker:
             # Check for fps field
             if "fps" not in info:
                 self.errors.append(
-                    "Missing 'fps' field in info.json. "
+                    "Missing 'fps' field in meta/info.json. "
                     "The lerobot dataset must specify the data collection frequency (fps)."
                 )
                 
         except json.JSONDecodeError as e:
-            self.errors.append(f"Invalid JSON in info.json: {e}")
+            self.errors.append(f"Invalid JSON in meta/info.json: {e}")
         except Exception as e:
-            self.errors.append(f"Failed to read info.json: {e}")
+            self.errors.append(f"Failed to read meta/info.json: {e}")
 
     def _load_episode_info(self) -> None:
         """
         Load episode information including timestamps and durations.
         This information will be used for cross-validation with annotations.
         """
-        # Try to load from info.json
-        info_file = self.dataset_path / "info.json"
+        # Try to load from meta/info.json (lerobot stores it here)
+        info_file = self.dataset_path / "meta" / "info.json"
         if info_file.exists():
             try:
                 with info_file.open("r") as f:
@@ -93,7 +93,7 @@ class LerobotDatasetChecker:
             except Exception:
                 pass
 
-        # Try to load from meta directory
+        # Try to load from meta directory episode files
         meta_dir = self.dataset_path / "meta"
         if meta_dir.exists():
             episode_files = list(meta_dir.glob("episode_*.json"))

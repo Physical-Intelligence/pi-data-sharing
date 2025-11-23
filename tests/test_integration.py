@@ -26,7 +26,7 @@ def create_test_dataset(tmpdir):
     # In a real dataset, this would contain the task column
     (data_dir / "chunk-000.parquet").touch()
 
-    # Create info.json with fps (task is stored in parquet data files, not info.json)
+    # Create info.json in meta folder (lerobot stores it there)
     info = {
         "fps": 30,
         "episodes": {
@@ -34,7 +34,7 @@ def create_test_dataset(tmpdir):
             "ep_002": {"duration": 5.0, "num_frames": 150},
         },
     }
-    with open(dataset_path / "info.json", "w") as f:
+    with open(meta_dir / "info.json", "w") as f:
         json.dump(info, f)
 
     return dataset_path
