@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from lerobot_validator.validator import LerobotDatasetValidator
 
