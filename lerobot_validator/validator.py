@@ -10,6 +10,7 @@ from cloudpathlib import CloudPath, AnyPath
 from lerobot_validator.metadata_validator import MetadataValidator
 from lerobot_validator.annotation_validator import AnnotationValidator
 from lerobot_validator.lerobot_checks import LerobotDatasetChecker
+from lerobot_validator.v3_metadata_checker import LerobotV3MetadataChecker
 
 
 class LerobotDatasetValidator:
@@ -49,6 +50,7 @@ class LerobotDatasetValidator:
         self.metadata_validator = MetadataValidator(self.metadata_path)
         self.annotation_validator = AnnotationValidator(self.annotation_path)
         self.lerobot_checker = LerobotDatasetChecker(self.dataset_path)
+        self.v3_checker = LerobotV3MetadataChecker(self.dataset_path)
 
         self.errors: List[str] = []
 
@@ -65,11 +67,13 @@ class LerobotDatasetValidator:
         metadata_valid = self.metadata_validator.validate()
         annotation_valid = self.annotation_validator.validate()
         lerobot_valid = self.lerobot_checker.validate()
+        v3_valid = self.v3_checker.validate()
 
         # Collect errors
         self.errors.extend(self.metadata_validator.get_errors())
         self.errors.extend(self.annotation_validator.get_errors())
         self.errors.extend(self.lerobot_checker.get_errors())
+        self.errors.extend(self.v3_checker.get_errors())
 
         # If basic validations pass and annotations exist, run cross-validation
         if metadata_valid and annotation_valid and self.annotation_validator.get_annotations():

@@ -13,21 +13,27 @@ def create_test_dataset(tmpdir):
     """Create a minimal test dataset structure."""
     dataset_path = Path(tmpdir) / "dataset"
     dataset_path.mkdir()
-    
+
     # Create meta folder
     meta_dir = dataset_path / "meta"
     meta_dir.mkdir()
-    
-    # Create data folder (lerobot datasets have parquet files here with task column)
+
+    # Create data folder with a valid data chunk parquet
     data_dir = dataset_path / "data"
-    data_dir.mkdir()
-    # Create a dummy parquet file to satisfy the check
-    # In a real dataset, this would contain the task column
-    (data_dir / "chunk-000.parquet").touch()
+    chunk_dir = data_dir / "chunk-000"
+    chunk_dir.mkdir(parents=True)
+    pd.DataFrame({
+        "episode_index": [0, 0, 1, 1],
+        "timestamp": [0.0, 0.033, 0.0, 0.033],
+    }).to_parquet(chunk_dir / "episode_000000.parquet", index=False)
 
     # Create info.json in meta folder (lerobot stores it there)
     info = {
         "fps": 30,
+        "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+        "features": {
+            "action": {"dtype": "float32", "shape": [7]},
+        },
         "episodes": {
             "ep_001": {"duration": 10.0, "num_frames": 300},
             "ep_002": {"duration": 5.0, "num_frames": 150},
@@ -35,6 +41,19 @@ def create_test_dataset(tmpdir):
     }
     with open(meta_dir / "info.json", "w") as f:
         json.dump(info, f)
+
+    # Create tasks.parquet
+    pd.DataFrame({"task_index": [0], "task": ["default"]}).to_parquet(
+        meta_dir / "tasks.parquet", index=False
+    )
+
+    # Create episodes.parquet with required v3 columns
+    pd.DataFrame({
+        "episode_index": [0, 1],
+        "data/chunk_index": [0, 0],
+        "data/file_index": [0, 1],
+        "tasks": [["default"], ["default"]],
+    }).to_parquet(meta_dir / "episodes.parquet", index=False)
 
     return dataset_path
 
