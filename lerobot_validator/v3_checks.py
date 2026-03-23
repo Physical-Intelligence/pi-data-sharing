@@ -11,14 +11,18 @@ Validators:
   V7:  validate_timestamps         -- reject absolute Unix epoch timestamps in data parquet
   V11: validate_custom_metadata_csv -- required columns, no null/duplicate episode_ids
   V12: validate_start_timestamp    -- start_timestamp must be plausible Unix epoch floats
+  V13: validate_video_frame_count  -- video frame counts must match data parquet row counts
+  V14: validate_feature_dtypes     -- warn about string-typed features that need special handling
 """
 
 import json
 import logging
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import numpy as np
 import pandas as pd
 from cloudpathlib import AnyPath, CloudPath
 
@@ -359,6 +363,150 @@ def validate_start_timestamp(
     return issues
 
 
+def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> List[Issue]:
+    """Check that video files have roughly the expected number of frames.
+
+    Compares the frame count reported by ffprobe against the number of rows
+    in the data parquet for each episode.  Excessive dropped frames (>5%
+    missing) trigger a warning; >20% missing triggers an error.
+    """
+    root = _to_path(dataset_path)
+    issues: List[Issue] = []
+    info = _load_info(root)
+
+    if info is None:
+        return issues
+
+    video_path_tpl = info.get("video_path")
+    if video_path_tpl is None:
+        return issues
+
+    video_keys = [
+        name
+        for name, defn in info.get("features", {}).items()
+        if isinstance(defn, dict) and defn.get("dtype") in ("video", "image")
+    ]
+    if not video_keys:
+        return issues
+
+    data_dir = root / "data"
+    if not data_dir.exists():
+        return issues
+
+    # Count expected frames per episode from data parquet.
+    episode_frame_counts: Dict[int, int] = {}
+    for pf in sorted(data_dir.glob("**/*.parquet")):
+        try:
+            df = pd.read_parquet(str(pf), columns=["episode_index"])
+        except Exception:
+            continue
+        for ep_idx, count in df["episode_index"].value_counts().items():
+            episode_frame_counts[int(ep_idx)] = episode_frame_counts.get(int(ep_idx), 0) + int(count)
+
+    if not episode_frame_counts:
+        return issues
+
+    chunks_size = info.get("chunks_size", 1000)
+    checked = 0
+    problems: List[str] = []
+
+    # Sample up to 5 episodes to avoid checking every video.
+    sample_episodes = sorted(episode_frame_counts.keys())[:5]
+    for ep_idx in sample_episodes:
+        expected_frames = episode_frame_counts[ep_idx]
+        ep_chunk = ep_idx // chunks_size
+
+        for vkey in video_keys[:1]:  # Check first video key only.
+            try:
+                rendered = video_path_tpl.format(
+                    episode_chunk=ep_chunk,
+                    episode_index=ep_idx,
+                    video_key=vkey,
+                )
+            except KeyError:
+                continue
+
+            video_file = root / rendered
+            if not video_file.exists():
+                continue
+
+            actual_frames = _probe_frame_count(str(video_file))
+            if actual_frames is None:
+                continue
+
+            checked += 1
+            if actual_frames == 0:
+                problems.append(
+                    f"  Episode {ep_idx} ({vkey}): video has 0 frames (expected {expected_frames})"
+                )
+                continue
+
+            drop_rate = 1.0 - (actual_frames / expected_frames)
+            if drop_rate > 0.20:
+                problems.append(
+                    f"  Episode {ep_idx} ({vkey}): {actual_frames}/{expected_frames} frames "
+                    f"({drop_rate:.0%} dropped)"
+                )
+            elif drop_rate > 0.05:
+                issues.append(
+                    Issue.warning(
+                        "validate_video_frame_count",
+                        f"Episode {ep_idx} ({vkey}): {actual_frames}/{expected_frames} frames "
+                        f"({drop_rate:.0%} dropped). Minor frame drops may cause seek errors.",
+                    )
+                )
+
+    if problems:
+        issues.append(
+            Issue.error(
+                "validate_video_frame_count",
+                f"Video files have excessive dropped frames (>20% missing) "
+                f"in {len(problems)} of {checked} checked episodes:\n" + "\n".join(problems),
+            )
+        )
+
+    return issues
+
+
+def validate_feature_dtypes(dataset_path: Union[str, Path, CloudPath]) -> List[Issue]:
+    """Warn about feature dtypes that require special handling downstream.
+
+    String-typed features (e.g. ``instruction.text``) cannot be stacked into
+    tensors by LeRobot's ``__getitem__``.  The featurizer extracts them into
+    episode metadata and drops them from the HuggingFace dataset, but partners
+    should be aware these features receive special treatment.
+    """
+    root = _to_path(dataset_path)
+    issues: List[Issue] = []
+    info = _load_info(root)
+
+    if info is None:
+        return issues
+
+    features = info.get("features", {})
+    if not isinstance(features, dict):
+        return issues
+
+    string_features = [
+        name
+        for name, defn in features.items()
+        if isinstance(defn, dict) and defn.get("dtype") == "string"
+    ]
+
+    if string_features:
+        issues.append(
+            Issue.warning(
+                "validate_feature_dtypes",
+                f"String-typed features found: {string_features}. "
+                f"These cannot be stacked into tensors and will be extracted "
+                f"into episode metadata during featurization. Ensure this is "
+                f"intentional.",
+            )
+        )
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 # Convenience: run all P0 validators
 # ---------------------------------------------------------------------------
@@ -370,6 +518,8 @@ _P0_VALIDATORS = [
     validate_timestamps,
     validate_custom_metadata_csv,
     validate_start_timestamp,
+    validate_video_frame_count,
+    validate_feature_dtypes,
 ]
 
 
@@ -414,6 +564,30 @@ def _to_path(dataset_path: Union[str, Path, CloudPath]) -> Any:
     if isinstance(dataset_path, str):
         return AnyPath(dataset_path)
     return dataset_path
+
+
+def _probe_frame_count(video_path: str) -> Optional[int]:
+    """Use ffprobe to count frames in a video file. Returns None on failure."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-count_frames",
+                "-show_entries", "stream=nb_read_frames",
+                "-of", "csv=p=0",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None
+        return int(result.stdout.strip())
+    except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
+        return None
 
 
 def _load_info(root: Any) -> Optional[Dict[str, Any]]:

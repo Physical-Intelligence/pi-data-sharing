@@ -11,11 +11,13 @@ from lerobot_validator.v3_checks import (
     Issue,
     validate_codebase_version,
     validate_custom_metadata_csv,
+    validate_feature_dtypes,
     validate_feature_shapes,
     validate_start_timestamp,
     validate_tasks_format,
     validate_timestamps,
     validate_v3_dataset,
+    validate_video_frame_count,
 )
 
 
@@ -613,3 +615,93 @@ class TestValidateV3Dataset:
     def test_issue_str_representation(self):
         issue = Issue(level="error", validator="test_validator", message="test message")
         assert str(issue) == "[error] test_validator: test message"
+
+
+# ===================================================================
+# V13: validate_video_frame_count
+# ===================================================================
+
+
+class TestValidateVideoFrameCount:
+    def test_no_info_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+            issues = validate_video_frame_count(root)
+            assert len(issues) == 0
+
+    def test_no_video_features_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+            info = _minimal_info()
+            # Replace video feature with a non-video one.
+            info["features"] = {"action": {"dtype": "float32", "shape": [7]}}
+            _write_info(root, info)
+
+            issues = validate_video_frame_count(root)
+            assert len(issues) == 0
+
+    def test_no_data_dir_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+            _write_info(root, _minimal_info())
+            # Remove data dir.
+            (root / "data").rmdir()
+
+            issues = validate_video_frame_count(root)
+            assert len(issues) == 0
+
+    def test_no_parquet_files_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+            _write_info(root, _minimal_info())
+            # data/ exists but is empty.
+            issues = validate_video_frame_count(root)
+            assert len(issues) == 0
+
+
+# ===================================================================
+# V14: validate_feature_dtypes
+# ===================================================================
+
+
+class TestValidateFeatureDtypes:
+    def test_no_string_features_passes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+            _write_info(root, _minimal_info())
+
+            issues = validate_feature_dtypes(root)
+            assert len(issues) == 0
+
+    def test_string_feature_warns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+            info = _minimal_info()
+            info["features"]["instruction.text"] = {"dtype": "string", "shape": [1]}
+            _write_info(root, info)
+
+            issues = validate_feature_dtypes(root)
+            warnings = _warnings(issues)
+            assert len(warnings) == 1
+            assert "instruction.text" in warnings[0].message
+            assert "string" in warnings[0].message.lower()
+
+    def test_multiple_string_features_single_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+            info = _minimal_info()
+            info["features"]["instruction.text"] = {"dtype": "string", "shape": [1]}
+            info["features"]["observation.meta.tool"] = {"dtype": "string", "shape": [1]}
+            _write_info(root, info)
+
+            issues = validate_feature_dtypes(root)
+            warnings = _warnings(issues)
+            assert len(warnings) == 1
+            assert "instruction.text" in warnings[0].message
+            assert "observation.meta.tool" in warnings[0].message
+
+    def test_no_info_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+            issues = validate_feature_dtypes(root)
+            assert len(issues) == 0
