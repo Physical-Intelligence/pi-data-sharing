@@ -10,6 +10,7 @@ from cloudpathlib import CloudPath, AnyPath
 from lerobot_validator.metadata_validator import MetadataValidator
 from lerobot_validator.annotation_validator import AnnotationValidator
 from lerobot_validator.lerobot_checks import LerobotDatasetChecker
+from lerobot_validator.v3_checks import validate_v3_dataset
 
 
 class LerobotDatasetValidator:
@@ -51,6 +52,7 @@ class LerobotDatasetValidator:
         self.lerobot_checker = LerobotDatasetChecker(self.dataset_path)
 
         self.errors: List[str] = []
+        self.warnings: List[str] = []
 
     def validate(self) -> bool:
         """
@@ -60,6 +62,7 @@ class LerobotDatasetValidator:
             True if all validations pass, False otherwise
         """
         self.errors = []
+        self.warnings = []
 
         # Run individual validators
         metadata_valid = self.metadata_validator.validate()
@@ -70,6 +73,14 @@ class LerobotDatasetValidator:
         self.errors.extend(self.metadata_validator.get_errors())
         self.errors.extend(self.annotation_validator.get_errors())
         self.errors.extend(self.lerobot_checker.get_errors())
+
+        # Run P0 v3 validators
+        v3_issues = validate_v3_dataset(self.dataset_path)
+        for issue in v3_issues:
+            if issue.level == "error":
+                self.errors.append(f"[{issue.validator}] {issue.message}")
+            else:
+                self.warnings.append(f"[{issue.validator}] {issue.message}")
 
         # If basic validations pass and annotations exist, run cross-validation
         if metadata_valid and annotation_valid and self.annotation_validator.get_annotations():
@@ -229,8 +240,18 @@ class LerobotDatasetValidator:
         """Get all validation errors."""
         return self.errors
 
+    def get_warnings(self) -> List[str]:
+        """Get all validation warnings."""
+        return self.warnings
+
     def print_results(self) -> None:
         """Print validation results."""
+        if self.warnings:
+            print(f"Warnings ({len(self.warnings)}):\n")
+            for i, warning in enumerate(self.warnings, 1):
+                print(f"  {i}. {warning}")
+            print()
+
         if len(self.errors) == 0:
             print("✓ All validations passed!")
         else:

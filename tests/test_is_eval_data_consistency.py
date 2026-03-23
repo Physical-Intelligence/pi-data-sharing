@@ -13,11 +13,11 @@ def create_test_dataset(tmpdir):
     """Create a minimal test dataset structure."""
     dataset_path = Path(tmpdir) / "dataset"
     dataset_path.mkdir()
-    
+
     # Create meta folder
     meta_dir = dataset_path / "meta"
     meta_dir.mkdir()
-    
+
     # Create data folder (lerobot datasets have parquet files here with task column)
     data_dir = dataset_path / "data"
     data_dir.mkdir()
@@ -28,9 +28,16 @@ def create_test_dataset(tmpdir):
     # Create info.json in meta folder (lerobot stores it there)
     info = {
         "fps": 30,
+        "codebase_version": "v3.0",
+        "features": {},
     }
     with open(meta_dir / "info.json", "w") as f:
         json.dump(info, f)
+
+    # Create tasks.parquet (required by v3 validators)
+    pd.DataFrame({"task_index": [0], "task": ["default"]}).to_parquet(
+        meta_dir / "tasks.parquet", index=False
+    )
 
     return dataset_path
 
