@@ -227,6 +227,32 @@ def test_invalid_gcs_uri_missing_path():
         assert any("must include path after bucket" in err for err in errors)
 
 
+def test_null_start_timestamp_fails():
+    """Test that null/missing start_timestamp is rejected."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_path = Path(tmpdir) / "custom_metadata.csv"
+
+        df = pd.DataFrame(
+            {
+                "episode_index": [0, 1],
+                "operator_id": ["op1", "op1"],
+                "is_eval_episode": [False, False],
+                "episode_id": ["ep_001", "ep_002"],
+                "start_timestamp": [1730455200, None],
+                "checkpoint_path": ["", ""],
+                "success": [True, False],
+                "station_id": ["station_1", "station_1"],
+                "robot_id": ["robot_1", "robot_1"],
+            }
+        )
+        df.to_csv(metadata_path, index=False)
+
+        validator = MetadataValidator(metadata_path)
+        assert validator.validate() is False
+        errors = validator.get_errors()
+        assert any("missing/null" in e for e in errors)
+
+
 def test_valid_gcs_uri_formats():
     """Test validation with various valid GCS URI formats."""
     with tempfile.TemporaryDirectory() as tmpdir:

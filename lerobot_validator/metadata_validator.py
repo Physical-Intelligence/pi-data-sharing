@@ -139,8 +139,14 @@ class MetadataValidator:
         for idx, row in self.df.iterrows():
             timestamp = row.get("start_timestamp")
             
-            # Skip if missing (will be caught by required columns check)
+            # Null timestamps are not allowed — every episode must have a
+            # valid collection start time.
             if pd.isna(timestamp):
+                episode_id = row.get("episode_id", f"row_{idx}")
+                invalid_timestamps.append(
+                    (idx, episode_id, timestamp,
+                     "start_timestamp is missing/null (every episode requires a valid timestamp)")
+                )
                 continue
             
             # Try to convert to float (epoch time should be numeric)
