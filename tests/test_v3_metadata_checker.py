@@ -366,3 +366,119 @@ def test_non_contiguous_episodes_fails():
         assert any(
             "Non-contiguous" in e for e in checker.get_errors()
         )
+
+
+# ---------------------------------------------------------------------------
+# Check 8: no video struct columns in data parquet
+# ---------------------------------------------------------------------------
+
+
+def test_data_parquet_without_video_columns_passes():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _write_info(root, _minimal_info())
+        chunk_dir = root / "data" / "chunk-000"
+        chunk_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "action": [[0.1] * 7],
+                "episode_index": [0],
+                "timestamp": [0.0],
+            }
+        ).to_parquet(chunk_dir / "episode_000000.parquet", index=False)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        assert not any(
+            "video feature columns" in e for e in checker.get_errors()
+        )
+
+
+def test_data_parquet_with_video_struct_columns_fails():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _write_info(root, _minimal_info())
+        chunk_dir = root / "data" / "chunk-000"
+        chunk_dir.mkdir(parents=True)
+        # Simulate a data parquet that erroneously includes the video
+        # feature key as a struct column (path + timestamp).
+        pd.DataFrame(
+            {
+                "action": [[0.1] * 7],
+                "observation.images.top": [
+                    {"path": "videos/top/chunk-000/ep_000000.mp4", "timestamp": 0.0}
+                ],
+                "episode_index": [0],
+                "timestamp": [0.0],
+            }
+        ).to_parquet(chunk_dir / "episode_000000.parquet", index=False)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        assert any(
+            "video feature columns" in e for e in checker.get_errors()
+        )
+
+
+# ---------------------------------------------------------------------------
+# Check 9: episode video metadata columns
+# ---------------------------------------------------------------------------
+
+
+def test_episode_parquet_with_video_metadata_passes():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _write_info(root, _minimal_info())
+        pd.DataFrame(
+            {
+                "episode_index": [0, 1],
+                "data/chunk_index": [0, 0],
+                "data/file_index": [0, 1],
+                "tasks": [["default"], ["default"]],
+                "videos/observation.images.top/chunk_index": [0, 0],
+                "videos/observation.images.top/from_timestamp": [0.0, 0.0],
+            }
+        ).to_parquet(root / "meta" / "episodes.parquet", index=False)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        assert not any(
+            "video metadata columns" in e for e in checker.get_errors()
+        )
+
+
+def test_episode_parquet_missing_video_metadata_fails():
+    """Episode parquet without videos/{key}/chunk_index and from_timestamp."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _write_info(root, _minimal_info())
+        _write_episodes_parquet(root)  # Has data/* cols but no videos/* cols
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        assert any(
+            "video metadata columns" in e for e in checker.get_errors()
+        )
+
+
+def test_episode_parquet_chunked_dir_missing_video_metadata_fails():
+    """Same check works for chunked episodes/ directory layout."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _write_info(root, _minimal_info())
+        ep_dir = root / "meta" / "episodes" / "chunk-000"
+        ep_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "episode_index": [0],
+                "data/chunk_index": [0],
+                "data/file_index": [0],
+                "tasks": [["default"]],
+            }
+        ).to_parquet(ep_dir / "file-000.parquet", index=False)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        assert any(
+            "video metadata columns" in e for e in checker.get_errors()
+        )

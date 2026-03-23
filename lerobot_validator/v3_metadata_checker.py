@@ -9,6 +9,8 @@ Checks that the dataset conforms to the LeRobot v3 specification:
   5. Video files referenced by the dataset exist
   6. Timestamp consistency across data parquet files
   7. Episode row contiguity in data parquet files
+  8. Data parquet files must not contain video struct columns
+  9. Episodes parquet must include per-video-key metadata columns
 """
 
 import json
@@ -89,6 +91,8 @@ class LerobotV3MetadataChecker:
         self._check_video_files_exist()
         self._check_timestamp_consistency()
         self._check_episode_contiguity()
+        self._check_no_video_columns_in_data_parquet()
+        self._check_episode_video_metadata_columns()
 
         return len(self.errors) == 0
 
@@ -403,4 +407,106 @@ class LerobotV3MetadataChecker:
                 "Non-contiguous episode rows in data parquet files. "
                 "All rows for each episode_index must be grouped "
                 "together:\n" + "\n".join(non_contiguous)
+            )
+
+    # ------------------------------------------------------------------
+    # Check 8: no video struct columns in data parquet
+    # ------------------------------------------------------------------
+
+    def _check_no_video_columns_in_data_parquet(self) -> None:
+        """Data parquet files must not contain video feature columns.
+
+        Video features (dtype="video" in info.json) are stored as separate
+        MP4 files.  If the data parquet also contains these columns (typically
+        as struct<path, timestamp>), the LeRobot dataset loader will fail with
+        a CastError because the column names don't match the expected schema.
+        """
+        data_dir = self._data_dir()
+        if not data_dir.exists():
+            return
+
+        video_keys = set(self._get_video_keys())
+        if not video_keys:
+            return
+
+        parquet_files = sorted(data_dir.glob("**/*.parquet"))
+        if not parquet_files:
+            return
+
+        # Only need to check the first file — schema is consistent across chunks.
+        pf = parquet_files[0]
+        try:
+            df = pd.read_parquet(str(pf), columns=None, nrows=0)
+        except TypeError:
+            # Older pandas versions don't support nrows; read full file.
+            df = pd.read_parquet(str(pf))
+        except Exception:
+            return
+
+        offending = sorted(video_keys & set(df.columns))
+        if offending:
+            self.errors.append(
+                f"Data parquet files contain video feature columns: "
+                f"{offending}. Video features (dtype='video' in info.json) "
+                f"must NOT appear as columns in data parquet files — they "
+                f"are stored as separate MP4 files. Remove these columns "
+                f"from the data parquet."
+            )
+
+    # ------------------------------------------------------------------
+    # Check 9: episode video metadata columns
+    # ------------------------------------------------------------------
+
+    def _check_episode_video_metadata_columns(self) -> None:
+        """Episode parquet must include per-video-key metadata columns.
+
+        For each video feature key, the episode parquet should contain
+        ``videos/{key}/chunk_index`` and ``videos/{key}/from_timestamp``
+        so the dataset loader can resolve the correct video file and
+        starting timestamp for each episode.
+        """
+        video_keys = self._get_video_keys()
+        if not video_keys:
+            return
+
+        episodes_dir = self._meta_dir() / "episodes"
+        episodes_file = self._meta_dir() / "episodes.parquet"
+
+        # v3 datasets may use either a flat episodes.parquet or a chunked
+        # episodes/ directory.
+        ep_columns: Optional[List[str]] = None
+        if episodes_dir.exists():
+            parquet_files = sorted(episodes_dir.glob("**/*.parquet"))
+            if parquet_files:
+                try:
+                    df = pd.read_parquet(str(parquet_files[0]))
+                    ep_columns = df.columns.tolist()
+                except Exception:
+                    return
+        elif episodes_file.exists():
+            try:
+                df = pd.read_parquet(str(episodes_file))
+                ep_columns = df.columns.tolist()
+            except Exception:
+                return
+        else:
+            return  # Already flagged in check 2
+
+        if ep_columns is None:
+            return
+
+        missing: List[str] = []
+        for vkey in video_keys:
+            for suffix in ("chunk_index", "from_timestamp"):
+                col = f"videos/{vkey}/{suffix}"
+                if col not in ep_columns:
+                    missing.append(col)
+
+        if missing:
+            self.errors.append(
+                f"Episode parquet is missing video metadata columns: "
+                f"{missing}. For each video feature, the episode parquet "
+                f"must include 'videos/{{key}}/chunk_index' and "
+                f"'videos/{{key}}/from_timestamp' columns so the dataset "
+                f"loader can resolve video files and timestamps."
             )
