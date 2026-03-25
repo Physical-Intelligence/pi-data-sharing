@@ -294,27 +294,22 @@ class LerobotV3MetadataChecker:
         if episodes_df is None:
             return
 
-        if "episode_index" not in episodes_df.columns:
-            return
-
-        chunks_size = self._info.get("chunks_size", 1000)
         missing_files: List[str] = []
 
         for _, row in episodes_df.iterrows():
-            ep_idx = int(row["episode_index"])
-            ep_chunk = int(
-                row.get("data/chunk_index", ep_idx // chunks_size)
-            )
-
             for vkey in video_keys:
+                vid_chunk_col = f"videos/{vkey}/chunk_index"
+                vid_file_col = f"videos/{vkey}/file_index"
+                if vid_chunk_col not in row.index or vid_file_col not in row.index:
+                    continue
                 try:
                     rendered = video_path_tpl.format(
-                        chunk_index=ep_chunk,
-                        file_index=ep_idx,
+                        chunk_index=int(row[vid_chunk_col]),
+                        file_index=int(row[vid_file_col]),
                         video_key=vkey,
                     )
-                except KeyError:
-                    continue  # Template uses non-standard placeholders
+                except (KeyError, ValueError):
+                    continue
 
                 if not (self.dataset_path / rendered).exists():
                     missing_files.append(rendered)

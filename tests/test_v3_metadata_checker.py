@@ -60,6 +60,9 @@ def _write_episodes_parquet(root: Path) -> None:
             "data/chunk_index": [0, 0],
             "data/file_index": [0, 1],
             "tasks": [["default"], ["default"]],
+            "videos/observation.images.top/chunk_index": [0, 0],
+            "videos/observation.images.top/file_index": [0, 1],
+            "videos/observation.images.top/from_timestamp": [0.0, 0.0],
         }
     ).to_parquet(root / "meta" / "episodes.parquet", index=False)
 
@@ -473,7 +476,14 @@ def test_episode_parquet_missing_video_metadata_fails():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = _make_dataset(tmpdir)
         _write_info(root, _minimal_info())
-        _write_episodes_parquet(root)  # Has data/* cols but no videos/* cols
+        pd.DataFrame(
+            {
+                "episode_index": [0, 1],
+                "data/chunk_index": [0, 0],
+                "data/file_index": [0, 1],
+                "tasks": [["default"], ["default"]],
+            }
+        ).to_parquet(root / "meta" / "episodes.parquet", index=False)
 
         checker = LerobotV3MetadataChecker(root)
         checker.validate()
