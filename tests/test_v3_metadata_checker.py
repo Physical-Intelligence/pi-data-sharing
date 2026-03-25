@@ -32,8 +32,8 @@ def _minimal_info() -> Dict[str, Any]:
     return {
         "fps": 30,
         "chunks_size": 1000,
-        "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
-        "video_path": "videos/{video_key}/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.mp4",
+        "data_path": "data/chunk-{chunk_index:03d}/episode_{file_index:06d}.parquet",
+        "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/episode_{file_index:06d}.mp4",
         "features": {
             "observation.images.top": {
                 "dtype": "video",
@@ -115,7 +115,7 @@ def test_episodes_parquet_missing_fails():
 
         checker = LerobotV3MetadataChecker(root)
         checker.validate()
-        assert any("episodes.parquet" in e for e in checker.get_errors())
+        assert any("Episodes parquet not found" in e for e in checker.get_errors())
 
 
 def test_episodes_parquet_missing_column_fails():
@@ -148,7 +148,28 @@ def test_episodes_parquet_all_columns_passes():
 
         checker = LerobotV3MetadataChecker(root)
         checker.validate()
-        assert not any("episodes.parquet" in e for e in checker.get_errors())
+        assert not any("Episodes parquet" in e or "missing required columns" in e for e in checker.get_errors())
+
+
+def test_episodes_parquet_chunked_layout_passes():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _write_info(root, _minimal_info())
+        _write_tasks_parquet(root)
+        ep_dir = root / "meta" / "episodes" / "chunk-000"
+        ep_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "episode_index": [0, 1],
+                "data/chunk_index": [0, 0],
+                "data/file_index": [0, 1],
+                "tasks": [["default"], ["default"]],
+            }
+        ).to_parquet(ep_dir / "file-000.parquet", index=False)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        assert not any("Episodes parquet" in e or "missing required columns" in e for e in checker.get_errors())
 
 
 # ---------------------------------------------------------------------------
@@ -189,14 +210,14 @@ def test_data_path_missing_placeholder_fails():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = _make_dataset(tmpdir)
         info = _minimal_info()
-        # missing {episode_chunk}
-        info["data_path"] = "data/chunk-000/episode_{episode_index:06d}.parquet"
+        # missing {chunk_index}
+        info["data_path"] = "data/chunk-000/episode_{file_index:06d}.parquet"
         _write_info(root, info)
 
         checker = LerobotV3MetadataChecker(root)
         checker.validate()
         assert any(
-            "episode_chunk" in e and "data_path" in e
+            "chunk_index" in e and "data_path" in e
             for e in checker.get_errors()
         )
 
@@ -206,7 +227,7 @@ def test_video_path_missing_video_key_fails():
         root = _make_dataset(tmpdir)
         info = _minimal_info()
         info["video_path"] = (
-            "videos/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.mp4"
+            "videos/chunk-{chunk_index:03d}/episode_{file_index:06d}.mp4"
         )
         _write_info(root, info)
 

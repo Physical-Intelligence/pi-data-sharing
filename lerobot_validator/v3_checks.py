@@ -419,8 +419,8 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
         for vkey in video_keys[:1]:  # Check first video key only.
             try:
                 rendered = video_path_tpl.format(
-                    episode_chunk=ep_chunk,
-                    episode_index=ep_idx,
+                    chunk_index=ep_chunk,
+                    file_index=ep_idx,
                     video_key=vkey,
                 )
             except KeyError:

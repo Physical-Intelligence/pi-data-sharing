@@ -33,12 +33,12 @@ REQUIRED_EPISODES_COLUMNS: List[str] = [
 
 # Standard placeholders expected in info.json path templates.
 REQUIRED_DATA_PATH_PLACEHOLDERS: Set[str] = {
-    "{episode_chunk",
-    "{episode_index",
+    "{chunk_index",
+    "{file_index",
 }
 REQUIRED_VIDEO_PATH_PLACEHOLDERS: Set[str] = {
-    "{episode_chunk",
-    "{episode_index",
+    "{chunk_index",
+    "{file_index",
     "{video_key",
 }
 
@@ -110,6 +110,26 @@ class LerobotV3MetadataChecker:
     def _data_dir(self) -> Any:
         return self.dataset_path / "data"
 
+    def _load_episodes_df(self) -> Optional[pd.DataFrame]:
+        """Load episodes parquet from either flat file or chunked directory."""
+        episodes_dir = self._meta_dir() / "episodes"
+        if episodes_dir.exists():
+            parquet_files = sorted(episodes_dir.glob("**/*.parquet"))
+            if parquet_files:
+                try:
+                    return pd.read_parquet(str(parquet_files[0]))
+                except Exception:
+                    return None
+
+        episodes_file = self._meta_dir() / "episodes.parquet"
+        if episodes_file.exists():
+            try:
+                return pd.read_parquet(str(episodes_file))
+            except Exception:
+                return None
+
+        return None
+
     def _load_info(self) -> None:
         info_file = self._meta_dir() / "info.json"
         if not info_file.exists():
@@ -160,19 +180,12 @@ class LerobotV3MetadataChecker:
     # ------------------------------------------------------------------
 
     def _check_episodes_parquet_columns(self) -> None:
-        episodes_file = self._meta_dir() / "episodes.parquet"
-        if not episodes_file.exists():
+        df = self._load_episodes_df()
+        if df is None:
             self.errors.append(
-                "meta/episodes.parquet not found. "
-                "LeRobot v3 datasets must include an episodes.parquet file."
-            )
-            return
-
-        try:
-            df = pd.read_parquet(str(episodes_file))
-        except Exception as exc:
-            self.errors.append(
-                f"Failed to read meta/episodes.parquet: {exc}"
+                "Episodes parquet not found (checked meta/episodes.parquet "
+                "and meta/episodes/ directory). "
+                "LeRobot v3 datasets must include an episodes parquet."
             )
             return
 
@@ -181,7 +194,7 @@ class LerobotV3MetadataChecker:
         ]
         if missing:
             self.errors.append(
-                f"meta/episodes.parquet is missing required columns: {missing}. "
+                f"Episodes parquet is missing required columns: {missing}. "
                 f"Present columns: {sorted(df.columns.tolist())}"
             )
 
@@ -265,13 +278,8 @@ class LerobotV3MetadataChecker:
         if not video_keys:
             return
 
-        episodes_file = self._meta_dir() / "episodes.parquet"
-        if not episodes_file.exists():
-            return  # Already flagged in check 2
-
-        try:
-            episodes_df = pd.read_parquet(str(episodes_file))
-        except Exception:
+        episodes_df = self._load_episodes_df()
+        if episodes_df is None:
             return
 
         if "episode_index" not in episodes_df.columns:
@@ -289,8 +297,8 @@ class LerobotV3MetadataChecker:
             for vkey in video_keys:
                 try:
                     rendered = video_path_tpl.format(
-                        episode_chunk=ep_chunk,
-                        episode_index=ep_idx,
+                        chunk_index=ep_chunk,
+                        file_index=ep_idx,
                         video_key=vkey,
                     )
                 except KeyError:
@@ -469,37 +477,15 @@ class LerobotV3MetadataChecker:
         if not video_keys:
             return
 
-        episodes_dir = self._meta_dir() / "episodes"
-        episodes_file = self._meta_dir() / "episodes.parquet"
-
-        # v3 datasets may use either a flat episodes.parquet or a chunked
-        # episodes/ directory.
-        ep_columns: Optional[List[str]] = None
-        if episodes_dir.exists():
-            parquet_files = sorted(episodes_dir.glob("**/*.parquet"))
-            if parquet_files:
-                try:
-                    df = pd.read_parquet(str(parquet_files[0]))
-                    ep_columns = df.columns.tolist()
-                except Exception:
-                    return
-        elif episodes_file.exists():
-            try:
-                df = pd.read_parquet(str(episodes_file))
-                ep_columns = df.columns.tolist()
-            except Exception:
-                return
-        else:
-            return  # Already flagged in check 2
-
-        if ep_columns is None:
+        df = self._load_episodes_df()
+        if df is None:
             return
 
         missing: List[str] = []
         for vkey in video_keys:
             for suffix in ("chunk_index", "from_timestamp"):
                 col = f"videos/{vkey}/{suffix}"
-                if col not in ep_columns:
+                if col not in df.columns:
                     missing.append(col)
 
         if missing:
