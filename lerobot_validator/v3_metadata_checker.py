@@ -66,6 +66,7 @@ class LerobotV3MetadataChecker:
             self.dataset_path = dataset_path
         self.errors: List[str] = []
         self._info: Optional[Dict[str, Any]] = None
+        self._episodes_df: Optional[pd.DataFrame] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -75,6 +76,7 @@ class LerobotV3MetadataChecker:
         """Run all v3 metadata checks.  Returns True when all pass."""
         self.errors = []
         self._info = None
+        self._episodes_df = None
 
         if not self.dataset_path.exists():
             self.errors.append(
@@ -111,21 +113,25 @@ class LerobotV3MetadataChecker:
         return self.dataset_path / "data"
 
     def _load_episodes_df(self) -> Optional[pd.DataFrame]:
-        """Load episodes parquet from either flat file or chunked directory."""
+        if self._episodes_df is not None:
+            return self._episodes_df
+
         episodes_dir = self._meta_dir() / "episodes"
         if episodes_dir.exists():
-            parquet_files = sorted(episodes_dir.glob("**/*.parquet"))
-            if parquet_files:
-                try:
-                    return pd.read_parquet(str(parquet_files[0]))
-                except Exception:
-                    return None
+            try:
+                self._episodes_df = pd.read_parquet(str(episodes_dir))
+                return self._episodes_df
+            except Exception as exc:
+                logger.warning("Failed to read %s: %s", episodes_dir, exc)
+                return None
 
         episodes_file = self._meta_dir() / "episodes.parquet"
         if episodes_file.exists():
             try:
-                return pd.read_parquet(str(episodes_file))
-            except Exception:
+                self._episodes_df = pd.read_parquet(str(episodes_file))
+                return self._episodes_df
+            except Exception as exc:
+                logger.warning("Failed to read %s: %s", episodes_file, exc)
                 return None
 
         return None
