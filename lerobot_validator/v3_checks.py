@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 from cloudpathlib import AnyPath, CloudPath
 
+from lerobot_validator._episodes import load_episodes_df, video_indices
 from lerobot_validator.schemas import REQUIRED_METADATA_COLUMNS
 
 logger = logging.getLogger(__name__)
@@ -407,8 +408,7 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
     if not episode_frame_counts:
         return issues
 
-    # Load episodes parquet to get per-video chunk_index/file_index.
-    episodes_df = _load_episodes_df(root)
+    episodes_df = load_episodes_df(root)
 
     checked = 0
     problems: List[str] = []
@@ -419,7 +419,7 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
         expected_frames = episode_frame_counts[ep_idx]
 
         for vkey in video_keys[:1]:  # Check first video key only.
-            vid_chunk, vid_file = _video_indices(episodes_df, ep_idx, vkey, info)
+            vid_chunk, vid_file = video_indices(episodes_df, ep_idx, vkey, info)
             try:
                 rendered = video_path_tpl.format(
                     chunk_index=vid_chunk,
@@ -589,53 +589,6 @@ def _probe_frame_count(video_path: str) -> Optional[int]:
         return int(result.stdout.strip())
     except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
         return None
-
-
-def _load_episodes_df(root: Any) -> Optional[pd.DataFrame]:
-    episodes_dir = root / "meta" / "episodes"
-    if episodes_dir.exists():
-        try:
-            return pd.read_parquet(str(episodes_dir))
-        except Exception:
-            pass
-
-    episodes_file = root / "meta" / "episodes.parquet"
-    if episodes_file.exists():
-        try:
-            return pd.read_parquet(str(episodes_file))
-        except Exception:
-            pass
-
-    return None
-
-
-def _video_indices(
-    episodes_df: Optional[pd.DataFrame],
-    ep_idx: int,
-    vkey: str,
-    info: Dict[str, Any],
-) -> tuple:
-    """Return (chunk_index, file_index) for a video key from the episodes parquet.
-
-    Falls back to chunks_size-based heuristic when the episodes parquet
-    is unavailable or missing the required columns.
-    """
-    chunks_size = info.get("chunks_size", 1000)
-    fallback = (ep_idx // chunks_size, ep_idx)
-
-    if episodes_df is None or "episode_index" not in episodes_df.columns:
-        return fallback
-
-    chunk_col = f"videos/{vkey}/chunk_index"
-    file_col = f"videos/{vkey}/file_index"
-    if chunk_col not in episodes_df.columns or file_col not in episodes_df.columns:
-        return fallback
-
-    row = episodes_df[episodes_df["episode_index"] == ep_idx]
-    if row.empty:
-        return fallback
-
-    return int(row.iloc[0][chunk_col]), int(row.iloc[0][file_col])
 
 
 def _load_info(root: Any) -> Optional[Dict[str, Any]]:

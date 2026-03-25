@@ -22,6 +22,8 @@ from typing import Any, Dict, List, Optional, Set, Union
 import pandas as pd
 from cloudpathlib import AnyPath, CloudPath
 
+from lerobot_validator._episodes import load_episodes_df
+
 logger = logging.getLogger(__name__)
 
 # Columns that must exist in every episodes parquet file.
@@ -121,26 +123,8 @@ class LerobotV3MetadataChecker:
     def _load_episodes_df(self) -> Optional[pd.DataFrame]:
         if self._episodes_df is not None:
             return self._episodes_df
-
-        episodes_dir = self._meta_dir() / "episodes"
-        if episodes_dir.exists():
-            try:
-                self._episodes_df = pd.read_parquet(str(episodes_dir))
-                return self._episodes_df
-            except Exception as exc:
-                logger.warning("Failed to read %s: %s", episodes_dir, exc)
-                return None
-
-        episodes_file = self._meta_dir() / "episodes.parquet"
-        if episodes_file.exists():
-            try:
-                self._episodes_df = pd.read_parquet(str(episodes_file))
-                return self._episodes_df
-            except Exception as exc:
-                logger.warning("Failed to read %s: %s", episodes_file, exc)
-                return None
-
-        return None
+        self._episodes_df = load_episodes_df(self.dataset_path)
+        return self._episodes_df
 
     def _load_info(self) -> None:
         info_file = self._meta_dir() / "info.json"
@@ -294,18 +278,23 @@ class LerobotV3MetadataChecker:
         if episodes_df is None:
             return
 
+        vkey_cols = {
+            vkey: (f"videos/{vkey}/chunk_index", f"videos/{vkey}/file_index")
+            for vkey in video_keys
+            if f"videos/{vkey}/chunk_index" in episodes_df.columns
+            and f"videos/{vkey}/file_index" in episodes_df.columns
+        }
+        if not vkey_cols:
+            return
+
         missing_files: List[str] = []
 
         for _, row in episodes_df.iterrows():
-            for vkey in video_keys:
-                vid_chunk_col = f"videos/{vkey}/chunk_index"
-                vid_file_col = f"videos/{vkey}/file_index"
-                if vid_chunk_col not in row.index or vid_file_col not in row.index:
-                    continue
+            for vkey, (chunk_col, file_col) in vkey_cols.items():
                 try:
                     rendered = video_path_tpl.format(
-                        chunk_index=int(row[vid_chunk_col]),
-                        file_index=int(row[vid_file_col]),
+                        chunk_index=int(row[chunk_col]),
+                        file_index=int(row[file_col]),
                         video_key=vkey,
                     )
                 except (KeyError, ValueError):
