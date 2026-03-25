@@ -112,6 +112,12 @@ class LerobotV3MetadataChecker:
     def _data_dir(self) -> Any:
         return self.dataset_path / "data"
 
+    def _data_parquet_files(self) -> List[Any]:
+        data_dir = self._data_dir()
+        if not data_dir.exists():
+            return []
+        return sorted(data_dir.glob("**/*.parquet"))
+
     def _load_episodes_df(self) -> Optional[pd.DataFrame]:
         if self._episodes_df is not None:
             return self._episodes_df
@@ -328,11 +334,7 @@ class LerobotV3MetadataChecker:
     # ------------------------------------------------------------------
 
     def _check_timestamp_consistency(self) -> None:
-        data_dir = self._data_dir()
-        if not data_dir.exists():
-            return
-
-        parquet_files = sorted(data_dir.glob("**/*.parquet"))
+        parquet_files = self._data_parquet_files()
         if not parquet_files:
             return
 
@@ -384,11 +386,7 @@ class LerobotV3MetadataChecker:
     # ------------------------------------------------------------------
 
     def _check_episode_contiguity(self) -> None:
-        data_dir = self._data_dir()
-        if not data_dir.exists():
-            return
-
-        parquet_files = sorted(data_dir.glob("**/*.parquet"))
+        parquet_files = self._data_parquet_files()
         if not parquet_files:
             return
 
@@ -435,15 +433,11 @@ class LerobotV3MetadataChecker:
         as struct<path, timestamp>), the LeRobot dataset loader will fail with
         a CastError because the column names don't match the expected schema.
         """
-        data_dir = self._data_dir()
-        if not data_dir.exists():
-            return
-
         video_keys = set(self._get_video_keys())
         if not video_keys:
             return
 
-        parquet_files = sorted(data_dir.glob("**/*.parquet"))
+        parquet_files = self._data_parquet_files()
         if not parquet_files:
             return
 

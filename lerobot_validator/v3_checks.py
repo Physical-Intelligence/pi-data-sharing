@@ -15,6 +15,7 @@ Validators:
   V14: validate_feature_dtypes     -- warn about string-typed features that need special handling
 """
 
+import inspect
 import json
 import logging
 import subprocess
@@ -539,8 +540,6 @@ def validate_v3_dataset(
     df_cache: Dict[str, pd.DataFrame] = {}
     for validator_fn in _P0_VALIDATORS:
         try:
-            import inspect
-
             sig = inspect.signature(validator_fn)
             if "_df_cache" in sig.parameters:
                 all_issues.extend(validator_fn(dataset_path, _df_cache=df_cache))
