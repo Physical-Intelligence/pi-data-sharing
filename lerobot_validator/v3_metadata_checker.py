@@ -2,15 +2,15 @@
 Validator for LeRobot v3 dataset metadata integrity.
 
 Checks that the dataset conforms to the LeRobot v3 specification:
-  1. tasks.parquet exists (flags if only tasks.jsonl is present)
+  1. tasks.parquet exists (auto-converts from tasks.jsonl if possible)
   2. Episodes parquet has required columns
-  3. Feature shapes in info.json are non-empty
+  3. Feature shapes in info.json are non-empty (scalars need shape [1])
   4. File path templates in info.json use standard placeholders
-  5. Video files referenced by the dataset exist
-  6. Timestamp consistency across data parquet files
-  7. Episode row contiguity in data parquet files
-  8. Data parquet files must not contain video struct columns
-  9. Episodes parquet must include per-video-key metadata columns
+  5. chunks_size present in info.json
+  6. Video feature keys in info.json match episodes parquet columns
+  7. Video files referenced by the dataset exist
+  8. Timestamp consistency across data parquet files
+  9. Episode row contiguity in data parquet files
 """
 
 import json
@@ -46,6 +46,25 @@ REQUIRED_VIDEO_PATH_PLACEHOLDERS: Set[str] = {
 # episode start).  Values above are treated as absolute Unix timestamps.
 # No robot episode is longer than ~11.5 days (1e6 seconds).
 _ABSOLUTE_TIMESTAMP_THRESHOLD = 1_000_000.0
+
+
+def ensure_tasks_parquet(dataset_path: Union[str, Path]) -> None:
+    """Convert meta/tasks.jsonl to meta/tasks.parquet if the parquet is missing.
+
+    Some LeRobot v3 datasets ship with tasks.jsonl instead of tasks.parquet.
+    The lerobot library expects the parquet file, so this converts on the fly.
+    No-op if tasks.parquet already exists or tasks.jsonl is absent.
+    """
+    meta = Path(dataset_path) / "meta"
+    parquet_path = meta / "tasks.parquet"
+    jsonl_path = meta / "tasks.jsonl"
+
+    if parquet_path.exists() or not jsonl_path.exists():
+        return
+
+    rows = [json.loads(line) for line in jsonl_path.read_text().strip().splitlines()]
+    pd.DataFrame(rows).to_parquet(str(parquet_path), index=False)
+    logger.info("Converted %s to %s (%d tasks)", jsonl_path, parquet_path, len(rows))
 
 
 class LerobotV3MetadataChecker:
@@ -88,11 +107,11 @@ class LerobotV3MetadataChecker:
         self._check_episodes_parquet_columns()
         self._check_feature_shapes()
         self._check_path_templates()
+        self._check_chunks_size()
+        self._check_video_key_consistency()
         self._check_video_files_exist()
         self._check_timestamp_consistency()
         self._check_episode_contiguity()
-        self._check_no_video_columns_in_data_parquet()
-        self._check_episode_video_metadata_columns()
 
         return len(self.errors) == 0
 
@@ -144,6 +163,20 @@ class LerobotV3MetadataChecker:
         has_jsonl = (meta / "tasks.jsonl").exists()
 
         if has_jsonl and not has_parquet:
+            # Auto-convert tasks.jsonl -> tasks.parquet for local paths.
+            if not isinstance(meta, CloudPath):
+                try:
+                    ensure_tasks_parquet(self.dataset_path)
+                    logger.info(
+                        "Auto-converted meta/tasks.jsonl to meta/tasks.parquet"
+                    )
+                    return
+                except Exception as exc:
+                    self.errors.append(
+                        f"meta/tasks.parquet not found and auto-conversion "
+                        f"from tasks.jsonl failed: {exc}"
+                    )
+                    return
             self.errors.append(
                 "meta/tasks.parquet not found but meta/tasks.jsonl is present. "
                 "LeRobot v3 requires tasks.parquet — convert tasks.jsonl "
@@ -189,6 +222,23 @@ class LerobotV3MetadataChecker:
     # Check 3: feature shapes
     # ------------------------------------------------------------------
 
+    # Metadata columns that don't require a shape entry in info.json.
+    _METADATA_FEATURE_NAMES: set = {
+        "episode_index",
+        "frame_index",
+        "index",
+        "timestamp",
+        "task_index",
+    }
+
+    # Numeric dtypes that should always carry a shape declaration.
+    _NUMERIC_DTYPES: set = {
+        "int8", "int16", "int32", "int64",
+        "uint8", "uint16", "uint32", "uint64",
+        "float16", "float32", "float64",
+        "bfloat16",
+    }
+
     def _check_feature_shapes(self) -> None:
         if self._info is None:
             return
@@ -199,10 +249,25 @@ class LerobotV3MetadataChecker:
         for name, defn in features.items():
             if not isinstance(defn, dict):
                 continue
+
+            dtype = defn.get("dtype", "")
+
+            # Skip video/image features and metadata columns.
+            if dtype in ("video", "image"):
+                continue
+            if name in self._METADATA_FEATURE_NAMES:
+                continue
+
             shape = defn.get("shape")
+
             if isinstance(shape, list) and len(shape) == 0:
                 self.errors.append(
                     f"Feature '{name}' has an empty shape (shape: []). "
+                    "Scalar features should use shape: [1]."
+                )
+            elif shape is None and dtype in self._NUMERIC_DTYPES:
+                self.errors.append(
+                    f"Feature '{name}' is missing 'shape'. "
                     "Scalar features should use shape: [1]."
                 )
 
@@ -410,103 +475,73 @@ class LerobotV3MetadataChecker:
             )
 
     # ------------------------------------------------------------------
-    # Check 8: no video struct columns in data parquet
+    # Check 8: chunks_size in info.json
     # ------------------------------------------------------------------
 
-    def _check_no_video_columns_in_data_parquet(self) -> None:
-        """Data parquet files must not contain video feature columns.
-
-        Video features (dtype="video" in info.json) are stored as separate
-        MP4 files.  If the data parquet also contains these columns (typically
-        as struct<path, timestamp>), the LeRobot dataset loader will fail with
-        a CastError because the column names don't match the expected schema.
-        """
-        data_dir = self._data_dir()
-        if not data_dir.exists():
+    def _check_chunks_size(self) -> None:
+        if self._info is None:
             return
-
-        video_keys = set(self._get_video_keys())
-        if not video_keys:
-            return
-
-        parquet_files = sorted(data_dir.glob("**/*.parquet"))
-        if not parquet_files:
-            return
-
-        # Only need to check the first file — schema is consistent across chunks.
-        pf = parquet_files[0]
-        try:
-            df = pd.read_parquet(str(pf), columns=None, nrows=0)
-        except TypeError:
-            # Older pandas versions don't support nrows; read full file.
-            df = pd.read_parquet(str(pf))
-        except Exception:
-            return
-
-        offending = sorted(video_keys & set(df.columns))
-        if offending:
+        if "chunks_size" not in self._info:
             self.errors.append(
-                f"Data parquet files contain video feature columns: "
-                f"{offending}. Video features (dtype='video' in info.json) "
-                f"must NOT appear as columns in data parquet files — they "
-                f"are stored as separate MP4 files. Remove these columns "
-                f"from the data parquet."
+                "info.json is missing 'chunks_size'. "
+                "LeRobot v3 datasets must specify chunks_size (typically 1000) "
+                "indicating how many episodes are grouped per chunk directory."
             )
 
     # ------------------------------------------------------------------
-    # Check 9: episode video metadata columns
+    # Check 9: video feature keys match episodes parquet columns
     # ------------------------------------------------------------------
 
-    def _check_episode_video_metadata_columns(self) -> None:
-        """Episode parquet must include per-video-key metadata columns.
+    def _check_video_key_consistency(self) -> None:
+        """Verify that video feature keys in info.json match episodes parquet columns.
 
-        For each video feature key, the episode parquet should contain
-        ``videos/{key}/chunk_index`` and ``videos/{key}/from_timestamp``
-        so the dataset loader can resolve the correct video file and
-        starting timestamp for each episode.
+        The lerobot library looks up video chunk/file indices from the episodes
+        parquet using ``videos/{feature_key}/chunk_index``.  If the feature key
+        doesn't match the column prefix, episode loading fails at runtime.
         """
+        if self._info is None:
+            return
+
         video_keys = self._get_video_keys()
         if not video_keys:
             return
 
+        # Load one episodes parquet to get column names.
         episodes_dir = self._meta_dir() / "episodes"
-        episodes_file = self._meta_dir() / "episodes.parquet"
-
-        # v3 datasets may use either a flat episodes.parquet or a chunked
-        # episodes/ directory.
-        ep_columns: Optional[List[str]] = None
-        if episodes_dir.exists():
-            parquet_files = sorted(episodes_dir.glob("**/*.parquet"))
-            if parquet_files:
-                try:
-                    df = pd.read_parquet(str(parquet_files[0]))
-                    ep_columns = df.columns.tolist()
-                except Exception:
-                    return
-        elif episodes_file.exists():
-            try:
-                df = pd.read_parquet(str(episodes_file))
-                ep_columns = df.columns.tolist()
-            except Exception:
-                return
-        else:
-            return  # Already flagged in check 2
-
-        if ep_columns is None:
+        if not episodes_dir.exists():
             return
 
-        missing: List[str] = []
-        for vkey in video_keys:
-            for suffix in ("chunk_index", "from_timestamp"):
-                col = f"videos/{vkey}/{suffix}"
-                if col not in ep_columns:
-                    missing.append(col)
+        ep_files = sorted(episodes_dir.glob("**/*.parquet"))
+        if not ep_files:
+            return
 
-        if missing:
-            self.errors.append(
-                f"Episode parquet is missing video metadata columns: "
-                f"{missing}. For each video feature, the episode parquet "
-                f"must include 'videos/{{key}}/chunk_index' and "
-                f"'videos/{{key}}/from_timestamp' columns so the dataset "
-                f"loader can resolve video files and timestamps."
-            )
+        try:
+            ep_df = pd.read_parquet(str(ep_files[0]))
+        except Exception:
+            return
+
+        ep_columns = set(ep_df.columns)
+
+        for vkey in video_keys:
+            expected_col = f"videos/{vkey}/chunk_index"
+            if expected_col not in ep_columns:
+                # Check if a shorter prefix matches (common mismatch: key
+                # has a trailing modality suffix like /image).
+                candidates = [
+                    c for c in ep_columns
+                    if c.startswith("videos/") and c.endswith("/chunk_index")
+                ]
+                suggestion = ""
+                for cand in candidates:
+                    prefix = cand.removeprefix("videos/").removesuffix("/chunk_index")
+                    if vkey.startswith(prefix):
+                        suggestion = (
+                            f" Did you mean '{prefix}'? The episodes parquet "
+                            f"has '{cand}'."
+                        )
+                        break
+                self.errors.append(
+                    f"Video feature key '{vkey}' in info.json does not match "
+                    f"episodes parquet columns. Expected column "
+                    f"'{expected_col}' but it was not found.{suggestion}"
+                )

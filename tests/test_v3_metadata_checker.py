@@ -180,6 +180,62 @@ def test_valid_scalar_shape_passes():
         assert not any("empty shape" in e for e in checker.get_errors())
 
 
+def test_missing_shape_key_on_numeric_feature_fails():
+    """A numeric feature with no 'shape' key at all should be flagged."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        info = _minimal_info()
+        # Add a feature with dtype but no shape key
+        info["features"]["observation.state"] = {"dtype": "int64"}
+        _write_info(root, info)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        errors = checker.get_errors()
+        assert any(
+            "observation.state" in e and "missing 'shape'" in e
+            for e in errors
+        ), f"Expected missing shape error for observation.state, got: {errors}"
+
+
+def test_missing_shape_key_on_metadata_column_passes():
+    """Metadata columns (episode_index, timestamp, etc.) don't need shape."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        info = _minimal_info()
+        info["features"]["episode_index"] = {"dtype": "int64"}
+        info["features"]["timestamp"] = {"dtype": "float64"}
+        info["features"]["frame_index"] = {"dtype": "int64"}
+        info["features"]["index"] = {"dtype": "int64"}
+        info["features"]["task_index"] = {"dtype": "int64"}
+        _write_info(root, info)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        errors = checker.get_errors()
+        assert not any(
+            "missing 'shape'" in e for e in errors
+        ), f"Metadata columns should not require shape, got: {errors}"
+
+
+def test_missing_shape_key_on_video_feature_passes():
+    """Video features don't need shape checked."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        info = _minimal_info()
+        # Remove shape from the video feature
+        info["features"]["observation.images.top"] = {"dtype": "video"}
+        _write_info(root, info)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        errors = checker.get_errors()
+        assert not any(
+            "observation.images.top" in e and "missing 'shape'" in e
+            for e in errors
+        ), f"Video features should not require shape, got: {errors}"
+
+
 # ---------------------------------------------------------------------------
 # Check 4: path templates
 # ---------------------------------------------------------------------------
