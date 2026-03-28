@@ -204,6 +204,30 @@ def test_valid_scalar_shape_passes():
         assert not any("empty shape" in e for e in checker.get_errors())
 
 
+def test_missing_shape_on_numeric_feature_fails():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        info = _minimal_info()
+        info["features"]["observation.state"] = {"dtype": "int64"}
+        _write_info(root, info)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        assert any("observation.state" in e and "missing 'shape'" in e for e in checker.get_errors())
+
+
+def test_missing_shape_on_metadata_column_passes():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        info = _minimal_info()
+        info["features"]["timestamp"] = {"dtype": "float64"}
+        _write_info(root, info)
+
+        checker = LerobotV3MetadataChecker(root)
+        checker.validate()
+        assert not any("missing 'shape'" in e for e in checker.get_errors())
+
+
 # ---------------------------------------------------------------------------
 # Check 4: path templates
 # ---------------------------------------------------------------------------

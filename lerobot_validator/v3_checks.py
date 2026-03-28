@@ -134,6 +134,12 @@ def validate_feature_shapes(dataset_path: Union[str, Path, CloudPath]) -> List[I
     if not isinstance(features, dict):
         return issues
 
+    _metadata_features = {"episode_index", "frame_index", "index", "timestamp", "task_index"}
+    _numeric_dtypes = {
+        "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
+        "float16", "float32", "float64", "bfloat16",
+    }
+
     for name, defn in features.items():
         if not isinstance(defn, dict):
             continue
@@ -146,6 +152,16 @@ def validate_feature_shapes(dataset_path: Union[str, Path, CloudPath]) -> List[I
                 Issue.error(
                     "validate_feature_shapes",
                     f"Feature '{name}' has an empty shape (shape: []). "
+                    "Scalar features should use shape: [1].",
+                )
+            )
+            continue
+
+        if shape is None and dtype in _numeric_dtypes and name not in _metadata_features:
+            issues.append(
+                Issue.error(
+                    "validate_feature_shapes",
+                    f"Feature '{name}' is missing 'shape'. "
                     "Scalar features should use shape: [1].",
                 )
             )

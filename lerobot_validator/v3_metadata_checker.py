@@ -198,6 +198,12 @@ class LerobotV3MetadataChecker:
     # Check 3: feature shapes
     # ------------------------------------------------------------------
 
+    _METADATA_FEATURES = {"episode_index", "frame_index", "index", "timestamp", "task_index"}
+    _NUMERIC_DTYPES = {
+        "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
+        "float16", "float32", "float64", "bfloat16",
+    }
+
     def _check_feature_shapes(self) -> None:
         if self._info is None:
             return
@@ -208,10 +214,18 @@ class LerobotV3MetadataChecker:
         for name, defn in features.items():
             if not isinstance(defn, dict):
                 continue
+            dtype = defn.get("dtype", "")
+            if dtype in ("video", "image") or name in self._METADATA_FEATURES:
+                continue
             shape = defn.get("shape")
             if isinstance(shape, list) and len(shape) == 0:
                 self.errors.append(
                     f"Feature '{name}' has an empty shape (shape: []). "
+                    "Scalar features should use shape: [1]."
+                )
+            elif shape is None and dtype in self._NUMERIC_DTYPES:
+                self.errors.append(
+                    f"Feature '{name}' is missing 'shape'. "
                     "Scalar features should use shape: [1]."
                 )
 
