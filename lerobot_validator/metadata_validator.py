@@ -3,28 +3,44 @@ Validator for custom_metadata.csv file.
 """
 
 from pathlib import Path
-from typing import List, Dict, Any, Union
+from typing import List, Union
 
 import pandas as pd
 from cloudpathlib import CloudPath, AnyPath
 
-from lerobot_validator.schemas import REQUIRED_METADATA_COLUMNS
+from lerobot_validator.schemas import (
+    ALLOWED_METADATA_COLUMNS_BY_PROFILE,
+    REQUIRED_METADATA_COLUMNS_BY_PROFILE,
+    DatasetProfile,
+)
 
 
 class MetadataValidator:
     """Validates the custom_metadata.csv file."""
 
-    def __init__(self, metadata_path: Union[str, Path, CloudPath]):
+    def __init__(
+        self,
+        metadata_path: Union[str, Path, CloudPath],
+        dataset_profile: DatasetProfile = "robot",
+    ):
         """
         Initialize the metadata validator.
 
         Args:
             metadata_path: Path to the custom_metadata.csv file (supports local or cloud paths)
+            dataset_profile: Metadata contract to validate. UMI datasets may omit
+                robot/eval-only fields and include provider-specific columns.
         """
+        if dataset_profile not in REQUIRED_METADATA_COLUMNS_BY_PROFILE:
+            raise ValueError(f"Unsupported dataset profile: {dataset_profile}")
+
         if isinstance(metadata_path, str):
             self.metadata_path = AnyPath(metadata_path)
         else:
             self.metadata_path = metadata_path
+        self.dataset_profile = dataset_profile
+        self.required_columns = REQUIRED_METADATA_COLUMNS_BY_PROFILE[dataset_profile]
+        self.allowed_columns = ALLOWED_METADATA_COLUMNS_BY_PROFILE[dataset_profile]
         self.df = None
         self.errors: List[str] = []
 
@@ -64,7 +80,7 @@ class MetadataValidator:
 
     def _check_required_columns(self) -> None:
         """Check that all required columns are present."""
-        missing_columns = set(REQUIRED_METADATA_COLUMNS) - set(self.df.columns)
+        missing_columns = set(self.required_columns) - set(self.df.columns)
         if missing_columns:
             self.errors.append(
                 f"Missing required columns in metadata CSV: {sorted(missing_columns)}"
@@ -72,11 +88,14 @@ class MetadataValidator:
 
     def _check_unexpected_columns(self) -> None:
         """Check for unexpected columns in the CSV."""
-        unexpected_columns = set(self.df.columns) - set(REQUIRED_METADATA_COLUMNS)
+        if self.allowed_columns is None:
+            return
+
+        unexpected_columns = set(self.df.columns) - set(self.allowed_columns)
         if unexpected_columns:
             self.errors.append(
                 f"Unexpected columns found in metadata CSV: {sorted(unexpected_columns)}. "
-                f"Only the following columns are allowed: {REQUIRED_METADATA_COLUMNS}"
+                f"Only the following columns are allowed: {self.allowed_columns}"
             )
 
     def _check_data_validity(self) -> None:
@@ -97,9 +116,12 @@ class MetadataValidator:
 
         # Check success is boolean
         if "success" in self.df.columns:
-            non_bool_values = self.df[
-                ~self.df["success"].isin([True, False, "True", "False", "true", "false", 0, 1])
-            ]
+            valid_success = self.df["success"].isin(
+                [True, False, "True", "False", "true", "false", 0, 1]
+            )
+            if self.dataset_profile == "umi":
+                valid_success |= self.df["success"].isna()
+            non_bool_values = self.df[~valid_success]
             if len(non_bool_values) > 0:
                 self.errors.append(
                     f"Column 'success' must contain boolean values. "
@@ -168,7 +190,7 @@ class MetadataValidator:
                 episode_id = row.get("episode_id", f"row_{idx}")
                 invalid_timestamps.append(
                     (idx, episode_id, timestamp, 
-                     f"not a valid numeric timestamp (expected UTC seconds since epoch)")
+                     "not a valid numeric timestamp (expected UTC seconds since epoch)")
                 )
         
         if invalid_timestamps:
@@ -177,7 +199,7 @@ class MetadataValidator:
                 error_details.append(f"  Row {idx} (episode '{episode_id}'): '{timestamp}' - {reason}")
             
             self.errors.append(
-                f"Column 'start_timestamp' must contain valid UTC timestamps in seconds (Unix epoch time).\n"
+                "Column 'start_timestamp' must contain valid UTC timestamps in seconds (Unix epoch time).\n"
                 + "\n".join(error_details)
             )
 
@@ -255,4 +277,3 @@ class MetadataValidator:
     def get_metadata_df(self) -> pd.DataFrame:
         """Get the loaded metadata DataFrame."""
         return self.df
-

@@ -10,6 +10,7 @@ from cloudpathlib import CloudPath, AnyPath
 from lerobot_validator.metadata_validator import MetadataValidator
 from lerobot_validator.annotation_validator import AnnotationValidator
 from lerobot_validator.lerobot_checks import LerobotDatasetChecker
+from lerobot_validator.schemas import DatasetProfile
 from lerobot_validator.v3_metadata_checker import LerobotV3MetadataChecker
 from lerobot_validator.v3_checks import validate_v3_dataset
 
@@ -23,6 +24,7 @@ class LerobotDatasetValidator:
         self,
         dataset_path: Union[str, Path, CloudPath],
         is_eval_data: Optional[bool] = None,
+        dataset_profile: DatasetProfile = "robot",
     ):
         """
         Initialize the validator.
@@ -31,6 +33,8 @@ class LerobotDatasetValidator:
             dataset_path: Path to the lerobot dataset directory (supports local Path or GCP CloudPath)
             is_eval_data: Optional flag indicating if this is eval data (True) or training data (False).
                          If provided, validates that all episodes have matching is_eval_episode field.
+            dataset_profile: Dataset-specific validation contract. Use "umi"
+                for UMI demonstrations.
         
         The validator expects to find these files in the dataset's meta folder:
             - {dataset_path}/meta/custom_metadata.csv
@@ -42,13 +46,17 @@ class LerobotDatasetValidator:
         else:
             self.dataset_path = dataset_path
         self.is_eval_data = is_eval_data
+        self.dataset_profile = dataset_profile
 
         # Construct expected paths in meta folder
         meta_dir = self.dataset_path / "meta"
         self.metadata_path = meta_dir / "custom_metadata.csv"
         self.annotation_path = meta_dir / "custom_annotation.json"
 
-        self.metadata_validator = MetadataValidator(self.metadata_path)
+        self.metadata_validator = MetadataValidator(
+            self.metadata_path,
+            dataset_profile=self.dataset_profile,
+        )
         self.annotation_validator = AnnotationValidator(self.annotation_path)
         self.lerobot_checker = LerobotDatasetChecker(self.dataset_path)
         self.v3_checker = LerobotV3MetadataChecker(self.dataset_path)
@@ -69,8 +77,8 @@ class LerobotDatasetValidator:
         # Run individual validators
         metadata_valid = self.metadata_validator.validate()
         annotation_valid = self.annotation_validator.validate()
-        lerobot_valid = self.lerobot_checker.validate()
-        v3_valid = self.v3_checker.validate()
+        self.lerobot_checker.validate()
+        self.v3_checker.validate()
 
         # Collect errors
         self.errors.extend(self.metadata_validator.get_errors())
@@ -79,7 +87,10 @@ class LerobotDatasetValidator:
         self.errors.extend(self.v3_checker.get_errors())
 
         # Run P0 v3 validators
-        v3_issues = validate_v3_dataset(self.dataset_path)
+        v3_issues = validate_v3_dataset(
+            self.dataset_path,
+            dataset_profile=self.dataset_profile,
+        )
         for issue in v3_issues:
             if issue.level == "error":
                 self.errors.append(f"[{issue.validator}] {issue.message}")
@@ -262,4 +273,3 @@ class LerobotDatasetValidator:
             print(f"✗ Validation failed with {len(self.errors)} error(s):\n")
             for i, error in enumerate(self.errors, 1):
                 print(f"{i}. {error}")
-

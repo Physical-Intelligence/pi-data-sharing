@@ -30,6 +30,12 @@ python validate.py validate \
 python validate.py validate \
   --dataset-path ./my-dataset \
   --data-type eval
+
+# Validate UMI demonstration data
+python validate.py validate \
+  --dataset-path ./my-umi-dataset \
+  --data-type teleop \
+  --dataset-profile umi
 ```
 
 ### 4. Get Upload Instructions
@@ -83,7 +89,7 @@ Example:
 
 ### custom_metadata.csv
 
-Must have exactly these columns:
+For the default `robot` profile, it must have exactly these columns:
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -110,6 +116,44 @@ episode_index,operator_id,is_eval_episode,episode_id,start_timestamp,checkpoint_
   - ❌ Invalid: `2024-11-01T10:00:00`
 - `checkpoint_path` should only be set for eval episodes (is_eval_episode=True)
 - `checkpoint_path` must be a valid GCS URI format: `gs://bucket/path/to/checkpoint`
+
+### UMI datasets
+
+Pass `--dataset-profile umi` for UMI demonstration data. The UMI profile:
+
+- Requires `episode_index`, `operator_id`, `is_eval_episode`, `episode_id`,
+  `start_timestamp`, and `station_id` in `custom_metadata.csv`
+- Allows `success`, `checkpoint_path`, and `robot_id` to be omitted
+- Allows missing values in an optional `success` column
+- Accepts provider-specific metadata columns
+- Requires a 640x480 MP4 base camera and tracked left/right gripper poses
+- Allows optional wrist cameras, camera tracking, and camera intrinsics
+- Accepts an optional `observation/` prefix on all UMI feature names
+
+```text
+# Required
+base_0_camera/rgb/image
+left/position
+left/quaternion_xyzw
+left/gripper
+right/position
+right/quaternion_xyzw
+right/gripper
+
+# Optional
+base_X_camera/rgb/image
+left_wrist_0_camera/rgb/image
+right_wrist_0_camera/rgb/image
+camera_name/intrinsics
+camera_name/position
+camera_name/quaternion_xyzw
+```
+
+Camera images must use `dtype: video` with shape `[480, 640, 3]`. Position,
+quaternion, gripper, and intrinsics features must have shapes `[3]`, `[4]`,
+`[1]`, and `[3, 3]`, respectively. Every provided tracking field should also
+include a `name/timestamp` companion with shape `[1]` and an `int64` or
+`uint64` nanosecond value.
 
 See `examples/example_dataset/meta/custom_metadata.csv` for a complete example.
 
@@ -158,6 +202,7 @@ python validate.py validate \
 **Arguments:**
 - `--dataset-path`: Path to dataset directory (local or GCP URI like gs://bucket/path)
 - `--data-type`: Either `teleop` (training) or `eval` (evaluation)
+- `--dataset-profile`: Either `robot` (default) or `umi`
 
 **Examples:**
 ```bash
@@ -188,6 +233,7 @@ python validate.py compute-path \
 - `--dataset-name`: Dataset name for GCP path (required)
 - `--bucket-name`: GCS bucket name (required)
 - `--data-type`: Either `teleop` or `eval` (required)
+- `--dataset-profile`: Either `robot` (default) or `umi`
 - `--dataset-version`: Version string (optional, default: timestamp)
 - `--custom-folder-prefix`: Custom folder prefix (optional, e.g., "experiments/phase-1")
 - `--skip-validation`: Skip validation, only compute path (optional)
@@ -242,7 +288,7 @@ The validator uses two data types:
 
 ### Metadata CSV
 - All required columns must be present
-- No extra columns allowed
+- No extra columns allowed for the default `robot` profile
 - `episode_id` must be unique
 - `is_eval_episode` and `success` must be boolean
 - `start_timestamp` must be UTC seconds (Unix epoch time) in range 2000-2100

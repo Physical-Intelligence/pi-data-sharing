@@ -31,7 +31,7 @@ def create_test_dataset(tmpdir):
     info = {
         "fps": 30,
         "codebase_version": "v3.0",
-        "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+        "data_path": "data/chunk-{chunk_index:03d}/episode_{file_index:06d}.parquet",
         "features": {
             "action": {"dtype": "float32", "shape": [7]},
         },

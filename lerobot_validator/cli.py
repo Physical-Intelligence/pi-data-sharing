@@ -15,6 +15,7 @@ from lerobot_validator.gcp_path import compute_gcp_path, format_upload_instructi
 def validate(
     dataset_path: str,
     data_type: Literal["teleop", "eval"],
+    dataset_profile: Literal["robot", "umi"] = "robot",
 ):
     """
     Validate lerobot dataset metadata and annotations.
@@ -27,6 +28,8 @@ def validate(
         dataset_path: Path to the lerobot dataset directory (supports both local paths and GCP URIs like gs://bucket/path)
         data_type: Data type - must be "teleop" or "eval" (required). 
                    Teleop data (training) should have is_eval_episode=False, eval data should have is_eval_episode=True.
+        dataset_profile: Dataset-specific validation contract. Use "umi" for
+                         UMI demonstrations.
     """
     # Convert to AnyPath - supports both local Path and CloudPath (gs://)
     dataset_path_obj = AnyPath(dataset_path)
@@ -43,6 +46,7 @@ def validate(
     print(f"Metadata CSV:    {dataset_path_obj}/meta/custom_metadata.csv (required)")
     print(f"Annotation JSON: {dataset_path_obj}/meta/custom_annotation.json (optional)")
     print(f"Data type:       {data_type.capitalize()}")
+    print(f"Dataset profile: {dataset_profile.upper()}")
     print()
     print("Running validation...")
     print()
@@ -53,6 +57,7 @@ def validate(
     validator = LerobotDatasetValidator(
         dataset_path=dataset_path_obj,
         is_eval_data=is_eval_data,
+        dataset_profile=dataset_profile,
     )
 
     validation_passed = validator.validate()
@@ -78,6 +83,7 @@ def compute_upload_path(
     dataset_name: str,
     bucket_name: str,
     data_type: Literal["teleop", "eval"],
+    dataset_profile: Literal["robot", "umi"] = "robot",
     dataset_version: Optional[str] = None,
     custom_folder_prefix: Optional[str] = None,
     skip_validation: bool = False,
@@ -91,6 +97,8 @@ def compute_upload_path(
         bucket_name: GCS bucket name for upload destination (required)
         data_type: Data type - must be "teleop" or "eval" (required). 
                    Teleop data (training) should have is_eval_episode=False, eval data should have is_eval_episode=True.
+        dataset_profile: Dataset-specific validation contract. Use "umi" for
+                         UMI demonstrations.
         dataset_version: Dataset version (default: current timestamp)
         custom_folder_prefix: Custom folder prefix for GCP path (can include nested folders, e.g., 'foo/bar')
         skip_validation: Skip validation and only compute the path (default: False)
@@ -107,6 +115,7 @@ def compute_upload_path(
     print(f"Dataset name:    {dataset_name}")
     print(f"Bucket:          {bucket_name}")
     print(f"Data type:       {data_type.capitalize()}")
+    print(f"Dataset profile: {dataset_profile.upper()}")
     if dataset_version:
         print(f"Version:         {dataset_version}")
     if custom_folder_prefix:
@@ -123,6 +132,7 @@ def compute_upload_path(
         validator = LerobotDatasetValidator(
             dataset_path=dataset_path_obj,
             is_eval_data=is_eval_data,
+            dataset_profile=dataset_profile,
         )
 
         validation_passed = validator.validate()
@@ -172,4 +182,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
