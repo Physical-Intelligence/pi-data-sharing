@@ -13,22 +13,26 @@ Validators:
   V12: validate_start_timestamp    -- start_timestamp must be plausible Unix epoch floats
   V13: validate_video_frame_count  -- detect truncated videos + frame count vs parquet row counts
   V14: validate_feature_dtypes     -- warn about string-typed features that need special handling
+  V15: validate_umi_features       -- canonical UMI cameras and tracked poses
 """
 
 import inspect
 import json
 import logging
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import numpy as np
 import pandas as pd
 from cloudpathlib import AnyPath, CloudPath
 
 from lerobot_validator._episodes import load_episodes_df, video_indices
-from lerobot_validator.schemas import REQUIRED_METADATA_COLUMNS
+from lerobot_validator.schemas import (
+    REQUIRED_METADATA_COLUMNS_BY_PROFILE,
+    DatasetProfile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,25 @@ UNIX_EPOCH_MAX = 4_102_444_800.0
 
 # Minimum columns required for the converter to function at all.
 _MIN_REQUIRED_COLUMNS = ["episode_index", "episode_id"]
+
+_UMI_REQUIRED_IMAGE_FEATURE = "base_0_camera/rgb/image"
+_UMI_CAMERA_IMAGE_PATTERN = re.compile(
+    r"^(?:base_\d+_camera|(?:left|right)_wrist_\d+_camera)/rgb/image$"
+)
+_UMI_REQUIRED_TRACKING_FEATURES = {
+    "left/position": [3],
+    "left/quaternion_xyzw": [4],
+    "left/gripper": [1],
+    "right/position": [3],
+    "right/quaternion_xyzw": [4],
+    "right/gripper": [1],
+}
+_UMI_CAMERA_TRACKING_PATTERN = re.compile(
+    r"^(?P<camera>.+_camera)/(?P<field>position|quaternion_xyzw)$"
+)
+_UMI_TIMESTAMP_SHAPE = [1]
+_UMI_TIMESTAMP_DTYPES = ("int64", "uint64")
+_UMI_VIDEO_SHAPE = [480, 640, 3]
 
 
 @dataclass
@@ -180,6 +203,141 @@ def validate_feature_shapes(dataset_path: Union[str, Path, CloudPath]) -> List[I
     return issues
 
 
+def validate_umi_features(dataset_path: Union[str, Path, CloudPath]) -> List[Issue]:
+    """Check the public camera, gripper, and tracking contract for UMI datasets.
+
+    Both the partner-facing names and their ``observation/``-prefixed forms
+    are accepted because the ingestion converter normalizes the former into
+    the latter.
+    """
+    root = _to_path(dataset_path)
+    issues: List[Issue] = []
+    info = _load_info(root)
+
+    if info is None:
+        return issues
+
+    raw_features = info.get("features", {})
+    if not isinstance(raw_features, dict):
+        return [
+            Issue.error(
+                "validate_umi_features",
+                "meta/info.json must contain a 'features' object for UMI validation.",
+            )
+        ]
+
+    features = {
+        _normalize_umi_feature_name(name): defn
+        for name, defn in raw_features.items()
+        if isinstance(name, str) and isinstance(defn, dict)
+    }
+    required_features = [_UMI_REQUIRED_IMAGE_FEATURE, *_UMI_REQUIRED_TRACKING_FEATURES]
+    missing = [name for name in required_features if name not in features]
+    if missing:
+        issues.append(
+            Issue.error(
+                "validate_umi_features",
+                f"UMI dataset is missing required features: {missing}",
+            )
+        )
+
+    for name, defn in features.items():
+        if not _UMI_CAMERA_IMAGE_PATTERN.fullmatch(name):
+            continue
+        if defn.get("dtype") != "video":
+            issues.append(
+                Issue.error(
+                    "validate_umi_features",
+                    f"UMI camera feature '{name}' must use dtype 'video' for MP4 encoding, "
+                    f"got {defn.get('dtype')!r}.",
+                )
+            )
+        if defn.get("shape") != _UMI_VIDEO_SHAPE:
+            issues.append(
+                Issue.error(
+                    "validate_umi_features",
+                    f"UMI camera feature '{name}' must have shape {_UMI_VIDEO_SHAPE}, "
+                    f"got {defn.get('shape')!r}.",
+                )
+            )
+
+    tracked_features = dict(_UMI_REQUIRED_TRACKING_FEATURES)
+    camera_tracking_fields: dict[str, set[str]] = {}
+    for name in features:
+        match = _UMI_CAMERA_TRACKING_PATTERN.fullmatch(name)
+        if match is None:
+            continue
+        camera = match.group("camera")
+        field = match.group("field")
+        camera_tracking_fields.setdefault(camera, set()).add(field)
+        tracked_features[name] = [3] if field == "position" else [4]
+
+    for camera, fields in camera_tracking_fields.items():
+        missing_fields = {"position", "quaternion_xyzw"} - fields
+        if missing_fields:
+            issues.append(
+                Issue.error(
+                    "validate_umi_features",
+                    f"UMI camera tracking for '{camera}' must include both position and "
+                    f"quaternion_xyzw; missing {sorted(missing_fields)}.",
+                )
+            )
+
+    for name, expected_shape in tracked_features.items():
+        defn = features.get(name)
+        if defn is not None and defn.get("shape") != expected_shape:
+            issues.append(
+                Issue.error(
+                    "validate_umi_features",
+                    f"UMI tracking feature '{name}' must have shape {expected_shape}, "
+                    f"got {defn.get('shape')!r}.",
+                )
+            )
+
+    for name, defn in features.items():
+        if name.endswith("/intrinsics") and defn.get("shape") != [3, 3]:
+            issues.append(
+                Issue.error(
+                    "validate_umi_features",
+                    f"UMI camera intrinsics feature '{name}' must have shape [3, 3], "
+                    f"got {defn.get('shape')!r}.",
+                )
+            )
+
+    missing_timestamps = []
+    for name in tracked_features:
+        if name not in features:
+            continue
+        timestamp_name = f"{name}/timestamp"
+        timestamp_defn = features.get(timestamp_name)
+        if timestamp_defn is None:
+            missing_timestamps.append(timestamp_name)
+            continue
+        if (
+            timestamp_defn.get("shape") != _UMI_TIMESTAMP_SHAPE
+            or timestamp_defn.get("dtype") not in _UMI_TIMESTAMP_DTYPES
+        ):
+            issues.append(
+                Issue.error(
+                    "validate_umi_features",
+                    f"UMI timestamp feature '{timestamp_name}' must have shape "
+                    f"{_UMI_TIMESTAMP_SHAPE} and dtype int64 or uint64 nanoseconds, "
+                    f"got shape {timestamp_defn.get('shape')!r} and "
+                    f"dtype {timestamp_defn.get('dtype')!r}.",
+                )
+            )
+    if missing_timestamps:
+        issues.append(
+            Issue.warning(
+                "validate_umi_features",
+                f"UMI tracking features should include nanosecond timestamp companions: "
+                f"{missing_timestamps}",
+            )
+        )
+
+    return issues
+
+
 def validate_timestamps(dataset_path: Union[str, Path, CloudPath]) -> List[Issue]:
     """Check that data parquet timestamps are relative, not absolute Unix epoch.
 
@@ -253,6 +411,7 @@ def validate_timestamps(dataset_path: Union[str, Path, CloudPath]) -> List[Issue
 def validate_custom_metadata_csv(
     dataset_path: Union[str, Path, CloudPath],
     _df_cache: Optional[Dict[str, pd.DataFrame]] = None,
+    dataset_profile: DatasetProfile = "robot",
 ) -> List[Issue]:
     """Check that meta/custom_metadata.csv exists and has required columns.
 
@@ -305,7 +464,8 @@ def validate_custom_metadata_csv(
         )
 
     # Warn about expected columns from the full schema that are missing.
-    missing_optional = [c for c in REQUIRED_METADATA_COLUMNS if c not in df.columns and c not in _MIN_REQUIRED_COLUMNS]
+    profile_columns = REQUIRED_METADATA_COLUMNS_BY_PROFILE[dataset_profile]
+    missing_optional = [c for c in profile_columns if c not in df.columns and c not in _MIN_REQUIRED_COLUMNS]
     if missing_optional:
         issues.append(
             Issue.warning(
@@ -585,30 +745,39 @@ _P0_VALIDATORS = [
 
 def validate_v3_dataset(
     dataset_path: Union[str, Path, CloudPath],
+    dataset_profile: DatasetProfile = "robot",
 ) -> List[Issue]:
     """Run all P0 validators and return a combined list of issues.
 
     Args:
         dataset_path: Path to the lerobot dataset directory.
+        dataset_profile: Dataset-specific validation contract.
 
     Returns:
         A list of Issue objects (errors and warnings).
     """
+    if dataset_profile not in ("robot", "umi"):
+        raise ValueError(f"Unsupported dataset profile: {dataset_profile}")
+
     all_issues: List[Issue] = []
     # Shared cache so V12 reuses the CSV loaded by V11.
     df_cache: Dict[str, pd.DataFrame] = {}
     for validator_fn in _P0_VALIDATORS:
         try:
             sig = inspect.signature(validator_fn)
+            kwargs: Dict[str, Any] = {}
             if "_df_cache" in sig.parameters:
-                all_issues.extend(validator_fn(dataset_path, _df_cache=df_cache))
-            else:
-                all_issues.extend(validator_fn(dataset_path))
+                kwargs["_df_cache"] = df_cache
+            if "dataset_profile" in sig.parameters:
+                kwargs["dataset_profile"] = dataset_profile
+            all_issues.extend(validator_fn(dataset_path, **kwargs))
         except Exception as exc:
             logger.warning("Validator %s raised: %s", validator_fn.__name__, exc)
             all_issues.append(
                 Issue.error(validator_fn.__name__, f"Validator raised an unexpected exception: {exc}")
             )
+    if dataset_profile == "umi":
+        all_issues.extend(validate_umi_features(dataset_path))
     return all_issues
 
 
@@ -622,6 +791,11 @@ def _to_path(dataset_path: Union[str, Path, CloudPath]) -> Any:
     if isinstance(dataset_path, str):
         return AnyPath(dataset_path)
     return dataset_path
+
+
+def _normalize_umi_feature_name(name: str) -> str:
+    prefix = "observation/"
+    return name[len(prefix):] if name.startswith(prefix) else name
 
 
 def _probe_frame_count(video_path: str) -> Optional[int]:
