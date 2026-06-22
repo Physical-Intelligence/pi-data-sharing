@@ -11,7 +11,7 @@ Validators:
   V7:  validate_timestamps         -- reject absolute Unix epoch timestamps in data parquet
   V11: validate_custom_metadata_csv -- required columns, no null/duplicate episode_ids
   V12: validate_start_timestamp    -- start_timestamp must be plausible Unix epoch floats
-  V13: validate_video_frame_count  -- video frame counts must match data parquet row counts
+  V13: validate_video_frame_count  -- detect truncated videos + frame count vs parquet row counts
   V14: validate_feature_dtypes     -- warn about string-typed features that need special handling
 """
 
@@ -382,11 +382,19 @@ def validate_start_timestamp(
 
 
 def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> List[Issue]:
-    """Check that video files have roughly the expected number of frames.
+    """Check that video files have roughly the expected number of frames and
+    are not truncated.
 
-    Compares the frame count reported by ffprobe against the number of rows
-    in the data parquet for each episode.  Excessive dropped frames (>5%
-    missing) trigger a warning; >20% missing triggers an error.
+    Two checks per sampled video:
+    1. **Truncation probe** — seeks to 90% of the container-reported duration
+       and tries to decode a frame.  Catches the common failure mode where an
+       MP4 header advertises the full length but the encoded stream ends early.
+    2. **Frame-count comparison** — decodes all frames (``ffprobe
+       -count_frames``) and compares against the parquet row count.  >5% drop
+       triggers a warning; >20% an error.
+
+    Episodes are sampled evenly across the dataset and all video keys are
+    checked.
     """
     root = _to_path(dataset_path)
     issues: List[Issue] = []
@@ -411,7 +419,6 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
     if not data_dir.exists():
         return issues
 
-    # Count expected frames per episode from data parquet.
     episode_frame_counts: Dict[int, int] = {}
     for pf in sorted(data_dir.glob("**/*.parquet")):
         try:
@@ -427,14 +434,22 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
     episodes_df = load_episodes_df(root)
 
     checked = 0
-    problems: List[str] = []
+    frame_drop_problems: List[str] = []
+    truncation_problems: List[str] = []
 
-    # Sample up to 5 episodes to avoid checking every video.
-    sample_episodes = sorted(episode_frame_counts.keys())[:5]
+    all_episodes = sorted(episode_frame_counts.keys())
+    if len(all_episodes) <= 5:
+        sample_episodes = all_episodes
+    else:
+        indices = np.linspace(0, len(all_episodes) - 1, 5, dtype=int)
+        sample_episodes = [all_episodes[i] for i in indices]
+
     for ep_idx in sample_episodes:
         expected_frames = episode_frame_counts[ep_idx]
+        if expected_frames == 0:
+            continue
 
-        for vkey in video_keys[:1]:  # Check first video key only.
+        for vkey in video_keys:
             vid_chunk, vid_file = video_indices(episodes_df, ep_idx, vkey, info)
             try:
                 rendered = video_path_tpl.format(
@@ -449,20 +464,34 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
             if not video_file.exists():
                 continue
 
-            actual_frames = _probe_frame_count(str(video_file))
+            video_str = str(video_file)
+
+            if _is_video_truncated(video_str):
+                truncation_problems.append(
+                    f"  {rendered}: stream ends before the container-reported duration"
+                )
+
+            actual_frames = _probe_frame_count(video_str)
             if actual_frames is None:
+                issues.append(
+                    Issue.warning(
+                        "validate_video_frame_count",
+                        f"Episode {ep_idx} ({vkey}): could not probe frame count for "
+                        f"{rendered} (ffprobe failed or timed out).",
+                    )
+                )
                 continue
 
             checked += 1
             if actual_frames == 0:
-                problems.append(
+                frame_drop_problems.append(
                     f"  Episode {ep_idx} ({vkey}): video has 0 frames (expected {expected_frames})"
                 )
                 continue
 
             drop_rate = 1.0 - (actual_frames / expected_frames)
             if drop_rate > 0.20:
-                problems.append(
+                frame_drop_problems.append(
                     f"  Episode {ep_idx} ({vkey}): {actual_frames}/{expected_frames} frames "
                     f"({drop_rate:.0%} dropped)"
                 )
@@ -475,12 +504,24 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
                     )
                 )
 
-    if problems:
+    if truncation_problems:
+        issues.append(
+            Issue.error(
+                "validate_video_frame_count",
+                "Truncated video files detected — the encoded stream ends before "
+                "the container header's reported duration. Episodes whose segments "
+                "fall past the truncation point will fail to decode:\n"
+                + "\n".join(truncation_problems),
+            )
+        )
+
+    if frame_drop_problems:
         issues.append(
             Issue.error(
                 "validate_video_frame_count",
                 f"Video files have excessive dropped frames (>20% missing) "
-                f"in {len(problems)} of {checked} checked episodes:\n" + "\n".join(problems),
+                f"in {len(frame_drop_problems)} of {checked} checked videos:\n"
+                + "\n".join(frame_drop_problems),
             )
         )
 
@@ -598,12 +639,76 @@ def _probe_frame_count(video_path: str) -> Optional[int]:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=120,
         )
         if result.returncode != 0:
             return None
         return int(result.stdout.strip())
     except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
+        return None
+
+
+def _probe_container_duration(video_path: str) -> Optional[float]:
+    """Read the container-reported duration in seconds (fast, metadata only)."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "csv=p=0",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        val = result.stdout.strip()
+        if not val or val == "N/A":
+            return None
+        return float(val)
+    except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
+        return None
+
+
+def _is_video_truncated(video_path: str) -> Optional[bool]:
+    """Detect truncated videos by seeking to near the end and decoding one frame.
+
+    Returns True if the video is truncated, False if it decodes fine at the
+    end, or None if we can't determine (e.g. ffmpeg not installed).
+    """
+    duration = _probe_container_duration(video_path)
+    if duration is None or duration < 1.0:
+        return None
+
+    seek_to = duration * 0.9
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-v", "error",
+                "-ss", f"{seek_to:.2f}",
+                "-i", video_path,
+                "-frames:v", "1",
+                "-f", "null", "-",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return True
+        stderr = result.stderr.lower()
+        if any(s in stderr for s in (
+            "no frame", "invalid data", "partial file", "invalid nal unit",
+        )):
+            return True
+        return False
+    except subprocess.TimeoutExpired:
+        return None
+    except FileNotFoundError:
         return None
 
 

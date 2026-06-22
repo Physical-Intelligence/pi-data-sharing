@@ -1,9 +1,11 @@
 """Tests for P0 v3 validators (lerobot_validator.v3_checks)."""
 
 import json
+import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
+from unittest import mock
 
 import pandas as pd
 
@@ -657,6 +659,169 @@ class TestValidateVideoFrameCount:
             # data/ exists but is empty.
             issues = validate_video_frame_count(root)
             assert len(issues) == 0
+
+
+def _setup_video_dataset(
+    root: Path,
+    *,
+    num_episodes: int = 3,
+    frames_per_episode: int = 100,
+    video_keys: Optional[List[str]] = None,
+) -> None:
+    """Create a dataset skeleton with parquet data and placeholder video files."""
+    if video_keys is None:
+        video_keys = ["observation.images.top"]
+
+    features: Dict[str, Any] = {
+        vk: {"dtype": "video", "shape": [480, 640, 3]} for vk in video_keys
+    }
+    features["action"] = {"dtype": "float32", "shape": [7]}
+
+    info = _minimal_info(
+        features=features,
+        video_path="videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:06d}.mp4",
+    )
+    _write_info(root, info)
+
+    rows = []
+    for ep in range(num_episodes):
+        rows.extend([{"episode_index": ep}] * frames_per_episode)
+    df = pd.DataFrame(rows)
+    chunk_dir = root / "data" / "chunk-000"
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(str(chunk_dir / "train-00000.parquet"), index=False)
+
+    episodes_rows = []
+    for ep in range(num_episodes):
+        row: Dict[str, Any] = {"episode_index": ep}
+        for vk in video_keys:
+            row[f"videos/{vk}/chunk_index"] = 0
+            row[f"videos/{vk}/file_index"] = ep
+        episodes_rows.append(row)
+    episodes_df = pd.DataFrame(episodes_rows)
+    (root / "meta" / "episodes").mkdir(parents=True, exist_ok=True)
+    episodes_df.to_parquet(str(root / "meta" / "episodes" / "part-0.parquet"), index=False)
+
+    for vk in video_keys:
+        for ep in range(num_episodes):
+            vdir = root / "videos" / vk / "chunk-000"
+            vdir.mkdir(parents=True, exist_ok=True)
+            (vdir / f"file-{ep:06d}.mp4").write_bytes(b"fake")
+
+
+def _make_subprocess_side_effect(
+    *,
+    truncated_videos: Optional[Set[str]] = None,
+    failed_probes: Optional[Set[str]] = None,
+    actual_frame_count: int = 100,
+    container_duration: float = 60.0,
+) -> Any:
+    """Return a side_effect for subprocess.run that simulates ffprobe/ffmpeg."""
+    truncated_videos = truncated_videos or set()
+    failed_probes = failed_probes or set()
+
+    def side_effect(cmd: List[str], **kwargs: Any) -> "subprocess.CompletedProcess[str]":
+        exe = cmd[0]
+        input_file = None
+        for i, arg in enumerate(cmd):
+            if arg == "-i" and i + 1 < len(cmd):
+                input_file = cmd[i + 1]
+                break
+        if input_file is None:
+            input_file = cmd[-1]
+
+        video_name = Path(input_file).name if input_file else ""
+
+        if exe == "ffprobe" and "-count_frames" in cmd:
+            if video_name in failed_probes:
+                return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="error")
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout=str(actual_frame_count), stderr="")
+
+        if exe == "ffprobe" and any("format=duration" in a for a in cmd):
+            return subprocess.CompletedProcess(
+                cmd, returncode=0, stdout=str(container_duration), stderr=""
+            )
+
+        if exe == "ffmpeg":
+            if video_name in truncated_videos:
+                return subprocess.CompletedProcess(
+                    cmd, returncode=1, stdout="", stderr="[h264] no frame!"
+                )
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+    return side_effect
+
+
+@mock.patch("lerobot_validator.v3_checks.subprocess.run")
+def test_truncated_video_detected(mock_run: mock.MagicMock) -> None:
+    mock_run.side_effect = _make_subprocess_side_effect(
+        truncated_videos={"file-000001.mp4"},
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _setup_video_dataset(root, num_episodes=3)
+
+        issues = validate_video_frame_count(root)
+
+        errors = _errors(issues)
+        assert any("Truncated video" in e.message for e in errors)
+
+
+@mock.patch("lerobot_validator.v3_checks.subprocess.run")
+def test_probe_failure_produces_warning(mock_run: mock.MagicMock) -> None:
+    mock_run.side_effect = _make_subprocess_side_effect(
+        failed_probes={"file-000000.mp4"},
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _setup_video_dataset(root, num_episodes=3)
+
+        issues = validate_video_frame_count(root)
+
+        warnings = _warnings(issues)
+        assert any("could not probe frame count" in w.message for w in warnings)
+
+
+@mock.patch("lerobot_validator.v3_checks.subprocess.run")
+def test_all_video_keys_checked(mock_run: mock.MagicMock) -> None:
+    probed_files: List[str] = []
+    original = _make_subprocess_side_effect()
+
+    def tracking_side_effect(cmd: List[str], **kwargs: Any) -> "subprocess.CompletedProcess[str]":
+        if cmd[0] == "ffprobe" and "-count_frames" in cmd:
+            probed_files.append(cmd[-1])
+        return original(cmd, **kwargs)
+
+    mock_run.side_effect = tracking_side_effect
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _setup_video_dataset(
+            root,
+            num_episodes=1,
+            video_keys=["cam_high", "cam_left_wrist", "cam_right_wrist"],
+        )
+
+        validate_video_frame_count(root)
+
+    assert len(probed_files) == 3
+    probed_keys = {Path(p).parent.parent.name for p in probed_files}
+    assert probed_keys == {"cam_high", "cam_left_wrist", "cam_right_wrist"}
+
+
+@mock.patch("lerobot_validator.v3_checks.subprocess.run")
+def test_excessive_frame_drop_errors(mock_run: mock.MagicMock) -> None:
+    mock_run.side_effect = _make_subprocess_side_effect(actual_frame_count=10)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = _make_dataset(tmpdir)
+        _setup_video_dataset(root, num_episodes=2, frames_per_episode=100)
+
+        issues = validate_video_frame_count(root)
+
+        errors = _errors(issues)
+        assert any("excessive dropped frames" in e.message for e in errors)
 
 
 # ===================================================================
