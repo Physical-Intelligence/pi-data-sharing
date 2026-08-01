@@ -141,6 +141,40 @@ Must follow this structure:
 
 See `examples/example_dataset/meta/custom_annotation.json` for a complete example.
 
+The current structured format declares `"schema_version": "2.0"` and uses
+episode-level `attributes` plus typed spans:
+
+```json
+{
+  "schema_version": "2.0",
+  "episodes": [
+    {
+      "episode_id": "ep_001",
+      "attributes": {
+        "is_lab_data_collection": true,
+        "checkpoint_step": 10000,
+        "quality_score": 0.95,
+        "policy_id": "dagger-v7"
+      },
+      "spans": [
+        {
+          "kind": "control_source",
+          "start_time": 0.0,
+          "end_time": 5.0,
+          "data": {"value": "policy"}
+        }
+      ]
+    }
+  ]
+}
+```
+
+Attribute values may be booleans, signed 64-bit integers, finite numbers, or
+strings up to 16,384 characters. Null, lists, and nested objects are not
+currently supported. See
+`examples/example_dataset/meta/custom_annotation_current.json` for a complete
+example.
+
 ## CLI Commands
 
 The validator provides two separate commands:

@@ -68,6 +68,91 @@ def test_optional_fields():
         assert len(validator.get_errors()) == 0
 
 
+def test_current_annotation_schema_accepts_mixed_scalar_attributes():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        annotation_path = Path(tmpdir) / "custom_annotation.json"
+        annotations = {
+            "schema_version": "2.0",
+            "episodes": [
+                {
+                    "episode_id": "ep_001",
+                    "attributes": {
+                        "is_lab_data_collection": True,
+                        "checkpoint_step": 10_000,
+                        "quality_score": 0.95,
+                        "policy_id": "dagger-v7",
+                    },
+                    "spans": [
+                        {
+                            "kind": "control_source",
+                            "start_time": 1.0,
+                            "end_time": 2.0,
+                            "data": {"value": "policy"},
+                        }
+                    ],
+                }
+            ],
+        }
+        with open(annotation_path, "w") as f:
+            json.dump(annotations, f)
+
+        validator = AnnotationValidator(annotation_path)
+
+        assert validator.validate() is True
+        assert validator.get_errors() == []
+
+
+def test_current_annotation_schema_allows_converter_normalized_intervals():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        annotation_path = Path(tmpdir) / "custom_annotation.json"
+        annotations = {
+            "schema_version": "2.0",
+            "episodes": [
+                {
+                    "episode_id": "ep_001",
+                    "spans": [
+                        {
+                            "kind": "control_source",
+                            "start_time": 2.0,
+                            "end_time": -1.0,
+                            "data": {"value": "policy"},
+                        }
+                    ],
+                }
+            ],
+        }
+        with open(annotation_path, "w") as f:
+            json.dump(annotations, f)
+
+        validator = AnnotationValidator(annotation_path)
+
+        assert validator.validate() is True
+        assert validator.get_errors() == []
+
+
+def test_current_annotation_schema_rejects_unsupported_attribute_values():
+    invalid_values = [None, {"nested": True}, [1, 2], 2**63, float("inf")]
+    for value in invalid_values:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            annotation_path = Path(tmpdir) / "custom_annotation.json"
+            annotations = {
+                "schema_version": "2.0",
+                "episodes": [
+                    {
+                        "episode_id": "ep_001",
+                        "attributes": {"invalid": value},
+                    }
+                ],
+            }
+            with open(annotation_path, "w") as f:
+                json.dump(annotations, f)
+
+            validator = AnnotationValidator(annotation_path)
+
+            assert validator.validate() is False
+            assert validator.get_errors()
+
+
 def test_invalid_time_intervals():
     """Test validation with invalid time intervals."""
     with tempfile.TemporaryDirectory() as tmpdir:

@@ -3,6 +3,7 @@ Validator for custom_annotation.json file.
 """
 
 import json
+import math
 from pathlib import Path
 from typing import List, Dict, Any, Union
 
@@ -10,6 +11,7 @@ import jsonschema
 from cloudpathlib import CloudPath, AnyPath
 
 from lerobot_validator.schemas import ANNOTATION_JSON_SCHEMA
+from lerobot_validator.schemas import ANNOTATION_JSON_SCHEMA_CURRENT
 
 
 class AnnotationValidator:
@@ -64,8 +66,14 @@ class AnnotationValidator:
 
     def _validate_schema(self) -> None:
         """Validate JSON against the expected schema."""
+        schema = (
+            ANNOTATION_JSON_SCHEMA_CURRENT
+            if isinstance(self.annotations, dict)
+            and self.annotations.get("schema_version") == "2.0"
+            else ANNOTATION_JSON_SCHEMA
+        )
         try:
-            jsonschema.validate(instance=self.annotations, schema=ANNOTATION_JSON_SCHEMA)
+            jsonschema.validate(instance=self.annotations, schema=schema)
         except jsonschema.ValidationError as e:
             self.errors.append(f"JSON schema validation failed: {e.message}")
         except Exception as e:
@@ -76,15 +84,48 @@ class AnnotationValidator:
         if not self.annotations or "episodes" not in self.annotations:
             return
 
+        is_current_schema = self.annotations.get("schema_version") == "2.0"
         for episode in self.annotations["episodes"]:
             episode_id = episode.get("episode_id", "unknown")
-            
+            for key, value in episode.get("attributes", {}).items():
+                if isinstance(value, bool):
+                    continue
+                if isinstance(value, int):
+                    if value < -(2**63) or value > 2**63 - 1:
+                        self.errors.append(
+                            f"Episode '{episode_id}': attribute {key!r} must fit signed int64"
+                        )
+                    continue
+                if isinstance(value, float):
+                    if not math.isfinite(value):
+                        self.errors.append(
+                            f"Episode '{episode_id}': attribute {key!r} must be finite"
+                        )
+                    continue
+                if isinstance(value, str):
+                    if len(value) > 16_384:
+                        self.errors.append(
+                            f"Episode '{episode_id}': attribute {key!r} exceeds 16384 characters"
+                        )
+                    continue
+                if value is not None:
+                    self.errors.append(
+                        f"Episode '{episode_id}': attribute {key!r} must be a boolean, "
+                        f"integer, finite float, or string; got {type(value).__name__}"
+                    )
+
+            # The current converter intentionally normalizes reversed intervals and
+            # clamps negative times to the first frame. Preserve the stricter checks
+            # only for the legacy format.
+            if is_current_schema:
+                continue
+
             # Validate spans
             if "spans" in episode:
                 for idx, span in enumerate(episode["spans"]):
                     start = span.get("start_time")
                     end = span.get("end_time")
-                    
+
                     if start is not None and start < 0:
                         self.errors.append(
                             f"Episode '{episode_id}': spans[{idx}] "
@@ -108,4 +149,3 @@ class AnnotationValidator:
     def get_annotations(self) -> Dict[str, Any]:
         """Get the loaded annotations dictionary."""
         return self.annotations
-

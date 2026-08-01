@@ -1,0 +1,24 @@
+{
+  "schema_version": "2.0",
+  "episodes": [
+    {
+      "episode_id": "ep_001",
+      "attributes": {
+        "is_lab_data_collection": true,
+        "checkpoint_step": 10000,
+        "quality_score": 0.95,
+        "policy_id": "dagger-v7"
+      },
+      "spans": [
+        {
+          "kind": "control_source",
+          "start_time": 0.0,
+          "end_time": 5.0,
+          "data": {
+            "value": "policy"
+          }
+        }
+      ]
+    }
+  ]
+}
