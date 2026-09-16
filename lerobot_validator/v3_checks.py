@@ -29,6 +29,7 @@ from cloudpathlib import AnyPath, CloudPath
 
 from lerobot_validator._episodes import load_episodes_df, video_indices
 from lerobot_validator.schemas import REQUIRED_METADATA_COLUMNS
+from lerobot_validator.storage import media_probe_target, read_csv, read_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -200,10 +201,10 @@ def validate_timestamps(dataset_path: Union[str, Path, CloudPath]) -> List[Issue
 
     pf = parquet_files[0]
     try:
-        df = pd.read_parquet(str(pf), columns=["timestamp", "episode_index"])
+        df = read_parquet(pf, columns=["timestamp", "episode_index"])
     except Exception:
         try:
-            df = pd.read_parquet(str(pf), columns=["timestamp"])
+            df = read_parquet(pf, columns=["timestamp"])
         except Exception:
             return issues
 
@@ -268,7 +269,7 @@ def validate_custom_metadata_csv(
         return issues
 
     try:
-        df = pd.read_csv(str(csv_path))
+        df = read_csv(csv_path)
     except Exception as exc:
         issues.append(
             Issue.error("validate_custom_metadata_csv", f"Failed to read meta/custom_metadata.csv: {exc}")
@@ -335,7 +336,7 @@ def validate_start_timestamp(
         if not csv_path.exists():
             return issues
         try:
-            df = pd.read_csv(str(csv_path))
+            df = read_csv(csv_path)
         except Exception:
             return issues
 
@@ -381,7 +382,10 @@ def validate_start_timestamp(
     return issues
 
 
-def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> List[Issue]:
+def validate_video_frame_count(
+    dataset_path: Union[str, Path, CloudPath],
+    sample_count: int = 5,
+) -> List[Issue]:
     """Check that video files have roughly the expected number of frames and
     are not truncated.
 
@@ -398,6 +402,8 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
     """
     root = _to_path(dataset_path)
     issues: List[Issue] = []
+    if sample_count <= 0:
+        return issues
     info = _load_info(root)
 
     if info is None:
@@ -422,7 +428,7 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
     episode_frame_counts: Dict[int, int] = {}
     for pf in sorted(data_dir.glob("**/*.parquet")):
         try:
-            df = pd.read_parquet(str(pf), columns=["episode_index"])
+            df = read_parquet(pf, columns=["episode_index"])
         except Exception:
             continue
         for ep_idx, count in df["episode_index"].value_counts().items():
@@ -438,10 +444,10 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
     truncation_problems: List[str] = []
 
     all_episodes = sorted(episode_frame_counts.keys())
-    if len(all_episodes) <= 5:
+    if len(all_episodes) <= sample_count:
         sample_episodes = all_episodes
     else:
-        indices = np.linspace(0, len(all_episodes) - 1, 5, dtype=int)
+        indices = np.linspace(0, len(all_episodes) - 1, sample_count, dtype=int)
         sample_episodes = [all_episodes[i] for i in indices]
 
     for ep_idx in sample_episodes:
@@ -464,14 +470,14 @@ def validate_video_frame_count(dataset_path: Union[str, Path, CloudPath]) -> Lis
             if not video_file.exists():
                 continue
 
-            video_str = str(video_file)
+            with media_probe_target(video_file) as video_str:
+                is_truncated = _is_video_truncated(video_str)
+                actual_frames = _probe_frame_count(video_str)
 
-            if _is_video_truncated(video_str):
+            if is_truncated:
                 truncation_problems.append(
                     f"  {rendered}: stream ends before the container-reported duration"
                 )
-
-            actual_frames = _probe_frame_count(video_str)
             if actual_frames is None:
                 issues.append(
                     Issue.warning(
@@ -585,6 +591,7 @@ _P0_VALIDATORS = [
 
 def validate_v3_dataset(
     dataset_path: Union[str, Path, CloudPath],
+    video_samples: int = 5,
 ) -> List[Issue]:
     """Run all P0 validators and return a combined list of issues.
 
@@ -599,6 +606,11 @@ def validate_v3_dataset(
     df_cache: Dict[str, pd.DataFrame] = {}
     for validator_fn in _P0_VALIDATORS:
         try:
+            if validator_fn is validate_video_frame_count:
+                all_issues.extend(
+                    validator_fn(dataset_path, sample_count=video_samples)
+                )
+                continue
             sig = inspect.signature(validator_fn)
             if "_df_cache" in sig.parameters:
                 all_issues.extend(validator_fn(dataset_path, _df_cache=df_cache))

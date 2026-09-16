@@ -23,6 +23,7 @@ class LerobotDatasetValidator:
         self,
         dataset_path: Union[str, Path, CloudPath],
         is_eval_data: Optional[bool] = None,
+        video_samples: int = 5,
     ):
         """
         Initialize the validator.
@@ -31,6 +32,7 @@ class LerobotDatasetValidator:
             dataset_path: Path to the lerobot dataset directory (supports local Path or GCP CloudPath)
             is_eval_data: Optional flag indicating if this is eval data (True) or training data (False).
                          If provided, validates that all episodes have matching is_eval_episode field.
+            video_samples: Number of episodes sampled for video integrity checks.
         
         The validator expects to find these files in the dataset's meta folder:
             - {dataset_path}/meta/custom_metadata.csv
@@ -42,6 +44,7 @@ class LerobotDatasetValidator:
         else:
             self.dataset_path = dataset_path
         self.is_eval_data = is_eval_data
+        self.video_samples = video_samples
 
         # Construct expected paths in meta folder
         meta_dir = self.dataset_path / "meta"
@@ -79,7 +82,10 @@ class LerobotDatasetValidator:
         self.errors.extend(self.v3_checker.get_errors())
 
         # Run P0 v3 validators
-        v3_issues = validate_v3_dataset(self.dataset_path)
+        v3_issues = validate_v3_dataset(
+            self.dataset_path,
+            video_samples=self.video_samples,
+        )
         for issue in v3_issues:
             if issue.level == "error":
                 self.errors.append(f"[{issue.validator}] {issue.message}")
@@ -262,4 +268,3 @@ class LerobotDatasetValidator:
             print(f"✗ Validation failed with {len(self.errors)} error(s):\n")
             for i, error in enumerate(self.errors, 1):
                 print(f"{i}. {error}")
-

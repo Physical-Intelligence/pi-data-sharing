@@ -625,6 +625,14 @@ class TestValidateV3Dataset:
 
 
 class TestValidateVideoFrameCount:
+    def test_zero_samples_skips_video_checks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+
+            issues = validate_video_frame_count(root, sample_count=0)
+
+            assert issues == []
+
     def test_no_info_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = _make_dataset(tmpdir)

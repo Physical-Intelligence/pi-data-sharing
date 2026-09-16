@@ -9,6 +9,7 @@ import pandas as pd
 from cloudpathlib import CloudPath, AnyPath
 
 from lerobot_validator.schemas import REQUIRED_METADATA_COLUMNS
+from lerobot_validator.storage import read_csv
 
 
 class MetadataValidator:
@@ -43,10 +44,7 @@ class MetadataValidator:
             return False
 
         try:
-            # Load CSV - pandas can read from cloud paths directly via cloudpathlib
-            # Convert CloudPath to string for pandas compatibility
-            path_str = str(self.metadata_path)
-            self.df = pd.read_csv(path_str)
+            self.df = read_csv(self.metadata_path)
         except Exception as e:
             self.errors.append(f"Failed to read CSV file: {e}")
             return False
@@ -255,4 +253,3 @@ class MetadataValidator:
     def get_metadata_df(self) -> pd.DataFrame:
         """Get the loaded metadata DataFrame."""
         return self.df
-

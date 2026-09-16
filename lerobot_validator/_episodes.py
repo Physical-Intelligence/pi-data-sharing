@@ -3,6 +3,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
+from lerobot_validator.storage import read_parquet_dataset
+
 logger = logging.getLogger(__name__)
 
 
@@ -11,7 +13,7 @@ def load_episodes_df(root: Any) -> Optional[pd.DataFrame]:
     episodes_dir = root / "meta" / "episodes"
     if episodes_dir.exists():
         try:
-            return pd.read_parquet(str(episodes_dir))
+            return read_parquet_dataset(episodes_dir)
         except Exception as exc:
             logger.warning("Failed to read %s: %s", episodes_dir, exc)
             return None
@@ -19,7 +21,7 @@ def load_episodes_df(root: Any) -> Optional[pd.DataFrame]:
     episodes_file = root / "meta" / "episodes.parquet"
     if episodes_file.exists():
         try:
-            return pd.read_parquet(str(episodes_file))
+            return read_parquet_dataset(episodes_file)
         except Exception as exc:
             logger.warning("Failed to read %s: %s", episodes_file, exc)
             return None

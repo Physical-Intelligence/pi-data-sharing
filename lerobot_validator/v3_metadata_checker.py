@@ -23,6 +23,7 @@ import pandas as pd
 from cloudpathlib import AnyPath, CloudPath
 
 from lerobot_validator._episodes import load_episodes_df
+from lerobot_validator.storage import read_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -341,7 +342,7 @@ class LerobotV3MetadataChecker:
 
         for pf in parquet_files:
             try:
-                df = pd.read_parquet(str(pf), columns=["timestamp"])
+                df = read_parquet(pf, columns=["timestamp"])
             except Exception:
                 continue
             if df.empty:
@@ -392,7 +393,7 @@ class LerobotV3MetadataChecker:
 
         for pf in parquet_files:
             try:
-                df = pd.read_parquet(str(pf), columns=["episode_index"])
+                df = read_parquet(pf, columns=["episode_index"])
             except Exception:
                 continue
             if df.empty:
@@ -442,10 +443,7 @@ class LerobotV3MetadataChecker:
         # Only need to check the first file — schema is consistent across chunks.
         pf = parquet_files[0]
         try:
-            df = pd.read_parquet(str(pf), columns=None, nrows=0)
-        except TypeError:
-            # Older pandas versions don't support nrows; read full file.
-            df = pd.read_parquet(str(pf))
+            df = read_parquet(pf)
         except Exception:
             return
 

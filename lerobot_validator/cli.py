@@ -6,15 +6,18 @@ import sys
 from typing import Literal, Optional
 
 import tyro
-from cloudpathlib import CloudPath, AnyPath
-
 from lerobot_validator.validator import LerobotDatasetValidator
 from lerobot_validator.gcp_path import compute_gcp_path, format_upload_instructions
+from lerobot_validator.storage import dataset_path as make_dataset_path
+from lerobot_validator.storage import path_kind
 
 
 def validate(
     dataset_path: str,
     data_type: Literal["teleop", "eval"],
+    s3_endpoint_url: Optional[str] = None,
+    s3_region: Optional[str] = None,
+    video_samples: int = 5,
 ):
     """
     Validate lerobot dataset metadata and annotations.
@@ -24,22 +27,25 @@ def validate(
         - {dataset_path}/meta/custom_annotation.json (optional)
 
     Args:
-        dataset_path: Path to the lerobot dataset directory (supports both local paths and GCP URIs like gs://bucket/path)
+        dataset_path: Local, GCS, or S3-compatible dataset path.
         data_type: Data type - must be "teleop" or "eval" (required). 
                    Teleop data (training) should have is_eval_episode=False, eval data should have is_eval_episode=True.
+        s3_endpoint_url: Custom S3-compatible endpoint, for example an OCI Object Storage compatibility endpoint.
+        s3_region: Region used for S3 request signing.
+        video_samples: Number of evenly distributed episodes to probe. Set to 0 to skip video decoding checks.
     """
-    # Convert to AnyPath - supports both local Path and CloudPath (gs://)
-    dataset_path_obj = AnyPath(dataset_path)
-    
-    # Determine path type for display
-    path_type = "GCP URI" if isinstance(dataset_path_obj, CloudPath) else "Local path"
+    dataset_path_obj = make_dataset_path(
+        dataset_path,
+        s3_endpoint_url=s3_endpoint_url,
+        s3_region=s3_region,
+    )
 
     # Run validation
     print("=" * 80)
     print("Lerobot Dataset Validator")
     print("=" * 80)
     print()
-    print(f"Dataset path:    {dataset_path_obj} ({path_type})")
+    print(f"Dataset path:    {dataset_path_obj} ({path_kind(dataset_path_obj)})")
     print(f"Metadata CSV:    {dataset_path_obj}/meta/custom_metadata.csv (required)")
     print(f"Annotation JSON: {dataset_path_obj}/meta/custom_annotation.json (optional)")
     print(f"Data type:       {data_type.capitalize()}")
@@ -53,6 +59,7 @@ def validate(
     validator = LerobotDatasetValidator(
         dataset_path=dataset_path_obj,
         is_eval_data=is_eval_data,
+        video_samples=video_samples,
     )
 
     validation_passed = validator.validate()
@@ -81,12 +88,15 @@ def compute_upload_path(
     dataset_version: Optional[str] = None,
     custom_folder_prefix: Optional[str] = None,
     skip_validation: bool = False,
+    s3_endpoint_url: Optional[str] = None,
+    s3_region: Optional[str] = None,
+    video_samples: int = 5,
 ):
     """
     Compute GCP upload path for a dataset (with optional validation).
 
     Args:
-        dataset_path: Path to the lerobot dataset directory (supports both local paths and GCP URIs like gs://bucket/path)
+        dataset_path: Local, GCS, or S3-compatible dataset path.
         dataset_name: Name of the dataset
         bucket_name: GCS bucket name for upload destination (required)
         data_type: Data type - must be "teleop" or "eval" (required). 
@@ -94,16 +104,21 @@ def compute_upload_path(
         dataset_version: Dataset version (default: current timestamp)
         custom_folder_prefix: Custom folder prefix for GCP path (can include nested folders, e.g., 'foo/bar')
         skip_validation: Skip validation and only compute the path (default: False)
+        s3_endpoint_url: Custom S3-compatible endpoint used to read dataset_path.
+        s3_region: Region used for S3 request signing.
+        video_samples: Number of evenly distributed episodes to probe. Set to 0 to skip video decoding checks.
     """
-    # Convert to AnyPath
-    dataset_path_obj = AnyPath(dataset_path)
-    path_type = "GCP URI" if isinstance(dataset_path_obj, CloudPath) else "Local path"
+    dataset_path_obj = make_dataset_path(
+        dataset_path,
+        s3_endpoint_url=s3_endpoint_url,
+        s3_region=s3_region,
+    )
 
     print("=" * 80)
     print("GCP Upload Path Calculator")
     print("=" * 80)
     print()
-    print(f"Dataset path:    {dataset_path_obj} ({path_type})")
+    print(f"Dataset path:    {dataset_path_obj} ({path_kind(dataset_path_obj)})")
     print(f"Dataset name:    {dataset_name}")
     print(f"Bucket:          {bucket_name}")
     print(f"Data type:       {data_type.capitalize()}")
@@ -123,6 +138,7 @@ def compute_upload_path(
         validator = LerobotDatasetValidator(
             dataset_path=dataset_path_obj,
             is_eval_data=is_eval_data,
+            video_samples=video_samples,
         )
 
         validation_passed = validator.validate()
@@ -172,4 +188,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

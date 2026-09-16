@@ -49,7 +49,7 @@ python validate.py compute-path \
 - ✅ Checks lerobot dataset for fps
 - ✅ Cross-validates: intervention only for eval episodes, time boundaries
 - ✅ Computes GCP upload paths with custom prefixes
-- ✅ Supports both local paths and GCP URIs (gs://)
+- ✅ Supports local paths, GCP URIs (`gs://`), and S3-compatible object stores (`s3://`)
 - ✅ Two separate CLI commands: `validate` and `compute-path`
 - ✅ Type-safe CLI using tyro
 
@@ -156,8 +156,11 @@ python validate.py validate \
 ```
 
 **Arguments:**
-- `--dataset-path`: Path to dataset directory (local or GCP URI like gs://bucket/path)
+- `--dataset-path`: Path to dataset directory (local, `gs://bucket/path`, or `s3://bucket/path`)
 - `--data-type`: Either `teleop` (training) or `eval` (evaluation)
+- `--s3-endpoint-url`: Custom endpoint for an S3-compatible object store (optional)
+- `--s3-region`: Region used to sign S3 requests (optional)
+- `--video-samples`: Number of evenly distributed episodes whose videos are probed (default: 5; use 0 to skip video decoding)
 
 **Examples:**
 ```bash
@@ -166,7 +169,46 @@ python validate.py validate --dataset-path ./my-dataset --data-type teleop
 
 # Validate GCP evaluation data
 python validate.py validate --dataset-path gs://my-bucket/datasets/my-dataset --data-type eval
+
+# Validate data in an S3-compatible object store
+python validate.py validate \
+  --dataset-path s3://my-bucket/datasets/my-dataset \
+  --data-type teleop \
+  --s3-endpoint-url https://object-storage.example.com \
+  --s3-region example-region-1
 ```
+
+### S3-Compatible Object Stores
+
+The validator supports AWS S3 and providers implementing the S3 API, including
+OCI Object Storage, MinIO, Ceph, and Cloudflare R2. Use `s3://` for the dataset
+path even when the provider has its own native URI scheme.
+
+Credentials are resolved through boto3's standard credential chain. For static
+credentials, set them in the environment rather than passing secrets on the
+command line:
+
+```bash
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+```
+
+For OCI Object Storage, create a Customer Secret Key and use the compatibility
+endpoint for the bucket's region:
+
+```bash
+python validate.py validate \
+  --dataset-path s3://my-bucket/datasets/my-dataset \
+  --data-type teleop \
+  --s3-endpoint-url https://NAMESPACE.compat.objectstorage.REGION.oraclecloud.com \
+  --s3-region REGION
+```
+
+Cloud metadata files and parquet fragments are read through the configured
+storage client. Sampled videos are passed to `ffmpeg`/`ffprobe` through temporary
+signed HTTPS URLs, so the complete dataset is not staged locally. The frame-count
+check still reads each sampled video stream; use `--video-samples 0` when only
+metadata and parquet validation is desired.
 
 ### 2. `compute-path` - Compute GCP Upload Path
 
@@ -281,7 +323,7 @@ Examples:
 
 ## CloudPath Support
 
-The validator supports both local filesystem paths and GCP URIs:
+The validator supports local filesystem paths, GCP URIs, and S3-compatible URIs:
 
 ```bash
 # Local path
@@ -289,6 +331,9 @@ python validate.py validate --dataset-path ./my-dataset --data-type eval
 
 # GCP URI
 python validate.py validate --dataset-path gs://my-bucket/datasets/my-dataset --data-type eval
+
+# S3-compatible URI (AWS S3 needs no custom endpoint)
+python validate.py validate --dataset-path s3://my-bucket/datasets/my-dataset --data-type eval
 ```
 
 All file operations work transparently with both path types.
