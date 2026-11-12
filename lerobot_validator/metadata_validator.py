@@ -45,8 +45,10 @@ class MetadataValidator:
         try:
             # Load CSV - pandas can read from cloud paths directly via cloudpathlib
             # Convert CloudPath to string for pandas compatibility
+            # Read episode_id as text so numeric-looking ids (e.g. "20241101001",
+            # "007") match the string ids used in custom_annotation.json
             path_str = str(self.metadata_path)
-            self.df = pd.read_csv(path_str)
+            self.df = pd.read_csv(path_str, dtype={"episode_id": str})
         except Exception as e:
             self.errors.append(f"Failed to read CSV file: {e}")
             return False

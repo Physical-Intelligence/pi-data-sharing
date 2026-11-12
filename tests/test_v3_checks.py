@@ -463,6 +463,16 @@ class TestValidateCustomMetadataCsv:
             errors = _errors(issues)
             assert any("duplicate" in e.message for e in errors)
 
+    def test_numeric_episode_ids_with_leading_zeros_are_distinct(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = _make_dataset(tmpdir)
+            df = _valid_metadata_df()
+            df["episode_id"] = ["007", "7"]
+            _write_custom_metadata(root, df)
+
+            issues = validate_custom_metadata_csv(root)
+            assert not any("duplicate" in e.message for e in _errors(issues))
+
     def test_missing_optional_columns_warns(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = _make_dataset(tmpdir)

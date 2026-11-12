@@ -113,6 +113,32 @@ def test_duplicate_episode_ids():
         assert any("duplicate" in err.lower() for err in errors)
 
 
+def test_numeric_episode_ids_kept_as_strings():
+    """Numeric-looking episode_ids stay strings, with leading zeros intact."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_path = Path(tmpdir) / "custom_metadata.csv"
+
+        df = pd.DataFrame(
+            {
+                "episode_index": [0, 1, 2],
+                "operator_id": ["op1", "op1", "op2"],
+                "is_eval_episode": [False, False, False],
+                "episode_id": ["20241101001", "007", "7"],
+                "start_timestamp": [1730455200, 1730458800, 1730462400],
+                "checkpoint_path": ["", "", ""],
+                "success": [True, False, True],
+                "station_id": ["station_1", "station_1", "station_2"],
+                "robot_id": ["robot_1", "robot_1", "robot_2"],
+            }
+        )
+        df.to_csv(metadata_path, index=False)
+
+        validator = MetadataValidator(metadata_path)
+        assert validator.validate() is True, validator.get_errors()
+        ids = validator.get_metadata_df()["episode_id"].tolist()
+        assert ids == ["20241101001", "007", "7"]
+
+
 def test_file_not_found():
     """Test validation with non-existent file."""
     with tempfile.TemporaryDirectory() as tmpdir:
