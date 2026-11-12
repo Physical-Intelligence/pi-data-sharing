@@ -268,7 +268,7 @@ def validate_custom_metadata_csv(
         return issues
 
     try:
-        df = pd.read_csv(str(csv_path))
+        df = pd.read_csv(str(csv_path), dtype={"episode_id": str})
     except Exception as exc:
         issues.append(
             Issue.error("validate_custom_metadata_csv", f"Failed to read meta/custom_metadata.csv: {exc}")
@@ -335,7 +335,7 @@ def validate_start_timestamp(
         if not csv_path.exists():
             return issues
         try:
-            df = pd.read_csv(str(csv_path))
+            df = pd.read_csv(str(csv_path), dtype={"episode_id": str})
         except Exception:
             return issues
 
