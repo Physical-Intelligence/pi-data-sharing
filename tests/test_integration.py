@@ -25,13 +25,13 @@ def create_test_dataset(tmpdir):
     pd.DataFrame({
         "episode_index": [0, 0, 1, 1],
         "timestamp": [0.0, 0.033, 0.0, 0.033],
-    }).to_parquet(chunk_dir / "episode_000000.parquet", index=False)
+    }).to_parquet(chunk_dir / "file-000.parquet", index=False)
 
     # Create info.json in meta folder (lerobot stores it there)
     info = {
         "fps": 30,
         "codebase_version": "v3.0",
-        "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+        "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
         "features": {
             "action": {"dtype": "float32", "shape": [7]},
         },

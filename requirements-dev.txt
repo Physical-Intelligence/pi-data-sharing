@@ -4,7 +4,6 @@
 # Testing
 pytest>=7.0.0
 pytest-cov>=4.0.0
-pytest-typeguard>=4.0.0
 
 # Code quality
 black>=22.0.0
