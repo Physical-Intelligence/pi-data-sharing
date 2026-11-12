@@ -2,6 +2,7 @@
 pandas>=1.3.0
 numpy>=1.20.0
 jsonschema>=4.0.0
+pyarrow>=10.0.0  # parquet engine for pandas (LeRobot v3 metadata/data files)
 tyro>=0.5.0
 cloudpathlib[gs]>=0.15.0
 
